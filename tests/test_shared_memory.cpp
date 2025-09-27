@@ -1,19 +1,19 @@
-#include "shared_memory.h"
+// #include "shared_memory.h"
+#include "shm_base.h"
+#include "time.h"
 #include <iostream>
 #include <unistd.h>
 int main() {
-  SharedMemory shm("test_shm", 1024 * 1024); // 1MB
-  if (shm.create()) {
-    std::cout << "Shared memory created." << std::endl;
-    char *data = static_cast<char *>(shm.data());
-    snprintf(data, 1024, "Hello from shared memory!");
-    std::cout << "Data written to shared memory: " << data << std::endl;
-    std::cout << "等待读取进程...（30秒后退出）" << std::endl;
-    sleep(30);
-    shm.close();
-    // shm.unlink(); // Uncomment to delete the shared memory
-  } else {
-    std::cout << "Failed to create shared memory." << std::endl;
+  ShmBase shm("/test_sem", 1024);
+  shm.Create();
+  while (true) {
+    uint64_t cur_time = static_cast<uint64_t>(time(nullptr));
+    std::string message_str =
+        "Hello from process 1 " + std::to_string(cur_time);
+    const char *message = message_str.c_str(); // 从 std::string 取 C 风格指
+    shm.Write(message, strlen(message) + 1);   // 包括终止符
+    std::cout << "Sent: " << message << std::endl;
+    sleep(1); // 每秒写入一次
   }
   return 0;
 }

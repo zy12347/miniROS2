@@ -1,14 +1,14 @@
-#include "shared_memory.h"
+#include "shm_base.h"
 #include <iostream>
 #include <unistd.h>
 int main() {
-  SharedMemory shm("test_shm", 1024 * 1024); // 1MB
-  if (shm.open()) {
-    char *data = static_cast<char *>(shm.data());
-    std::cout << "Data read from shared memory: " << data << std::endl;
-    shm.close();
-  } else {
-    std::cout << "Failed to open shared memory." << std::endl;
+  ShmBase shm("/test_sem", 1024);
+  shm.Open();
+  while (true) {
+    char data[1024];
+    shm.Read(data, 1024); // 包括终止符
+    std::cout << "Received: " << data << std::endl;
+    sleep(1); // 每秒读取一次
   }
   return 0;
 }

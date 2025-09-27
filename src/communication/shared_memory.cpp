@@ -6,13 +6,15 @@
 #include <unistd.h>
 
 SharedMemory::~SharedMemory() {
-  close();
+  if (data_ != MAP_FAILED && data_ != nullptr) {
+    Close();
+  }
   if (is_owner_) {
-    unlink();
+    Unlink();
   }
 }
 
-bool SharedMemory::create() {
+bool SharedMemory::Create() {
   if (is_owner_) {
     return true; // 已经是创建者，直接返回
   }
@@ -23,14 +25,14 @@ bool SharedMemory::create() {
     return false; // 创建失败
   }
   if (ftruncate(fd_, size_) == -1) { //设置共享内存的大小
-    close();
+    Close();
     shm_unlink(name_.c_str());
     return false; // 设置大小失败
   }
   data_ = mmap(nullptr, size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd_,
                0); //指针,大小,权限,映射模式,文件描述符,起始位置开始映射
   if (data_ == MAP_FAILED) {
-    close();
+    Close();
     shm_unlink(name_.c_str());
     return false; // 映射失败
   }
@@ -38,7 +40,7 @@ bool SharedMemory::create() {
   return true;
 }
 
-bool SharedMemory::open() {
+bool SharedMemory::Open() {
   if (is_owner_) {
     return true; // 已经是创建者，直接返回
   }
@@ -48,13 +50,13 @@ bool SharedMemory::open() {
   }
   data_ = mmap(nullptr, size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
   if (data_ == MAP_FAILED) {
-    close();
+    Close();
     return false; // 映射失败
   }
   return true;
 }
 
-bool SharedMemory::close() {
+bool SharedMemory::Close() {
   if (data_ && data_ != MAP_FAILED) {
     munmap(data_, size_);
     data_ = nullptr;
@@ -67,7 +69,7 @@ bool SharedMemory::close() {
   return true;
 }
 
-bool SharedMemory::unlink() {
+bool SharedMemory::Unlink() {
   if (!is_owner_) {
     return false; // 不是创建者，不能删除
   }
@@ -77,4 +79,4 @@ bool SharedMemory::unlink() {
   return true;
 }
 
-void *SharedMemory::data() { return data_; }
+void *SharedMemory::Data() { return data_; }

@@ -113,7 +113,6 @@ classDiagram
         + call(Req, Res) bool
     }
     
-    % 关系定义
     QoSMessageBuffer --|> SharedMemory : uses
     QoSMessageBuffer --|> QoSPolicy : uses
     

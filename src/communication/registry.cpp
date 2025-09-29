@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <unordered_map>
 
-std::unordered_map<std::string, std::string> node_registry; //节点吗->端口
+std::unordered_map<std::string, std::string> node_registry; //节点->端口
 std::mutex registry_mutex; // 用于保护 node_registry 的互斥锁
 
 void handle_client(int client_socket) {

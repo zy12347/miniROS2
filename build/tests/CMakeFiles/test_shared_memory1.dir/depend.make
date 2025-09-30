@@ -5,5 +5,6 @@ tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o: ../include/m
 tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o: ../include/mini_ros2/communication/shared_memory.h
 tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o: ../include/mini_ros2/communication/shm_base.h
 tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o: ../include/mini_ros2/message/json.h
+tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o: ../include/mini_ros2/pubsub/subscriber.h
 tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o: ../tests/test_shared_memory1.cpp
 

@@ -3,6 +3,7 @@
 #include <string>
 class SharedMemory {
 public:
+  SharedMemory() = default;
   SharedMemory(std::string name, size_t size)
       : name_(name), size_(size), fd_(-1), data_(nullptr), is_owner_(false) {
     // POSIX标准要求共享内存名称以'/'开头且不包含其他'/'且共享内存要小于10MB

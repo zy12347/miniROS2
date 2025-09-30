@@ -33,10 +33,20 @@ src/CMakeFiles/mini_ros2_lib.dir/node.cpp.o: ../src/node.cpp
 
 src/CMakeFiles/mini_ros2_lib.dir/parameter/parameter_server.cpp.o: ../src/parameter/parameter_server.cpp
 
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/publisher.cpp.o: ../include/mini_ros2/communication/mysemaphore.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/publisher.cpp.o: ../include/mini_ros2/communication/shared_memory.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/publisher.cpp.o: ../include/mini_ros2/communication/shm_base.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/publisher.cpp.o: ../include/mini_ros2/message/json.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/publisher.cpp.o: ../include/mini_ros2/pubsub/publisher.h
 src/CMakeFiles/mini_ros2_lib.dir/pubsub/publisher.cpp.o: ../src/pubsub/publisher.cpp
 
 src/CMakeFiles/mini_ros2_lib.dir/pubsub/qos_policy.cpp.o: ../src/pubsub/qos_policy.cpp
 
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/subscriber.cpp.o: ../include/mini_ros2/communication/mysemaphore.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/subscriber.cpp.o: ../include/mini_ros2/communication/shared_memory.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/subscriber.cpp.o: ../include/mini_ros2/communication/shm_base.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/subscriber.cpp.o: ../include/mini_ros2/message/json.h
+src/CMakeFiles/mini_ros2_lib.dir/pubsub/subscriber.cpp.o: ../include/mini_ros2/pubsub/subscriber.h
 src/CMakeFiles/mini_ros2_lib.dir/pubsub/subscriber.cpp.o: ../src/pubsub/subscriber.cpp
 
 src/CMakeFiles/mini_ros2_lib.dir/service/client.cpp.o: ../src/service/client.cpp

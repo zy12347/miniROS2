@@ -5,6 +5,7 @@
 
 class ShmBase {
 public:
+  ShmBase() = default;
   ShmBase(const std::string &name, size_t size)
       : name_(name), size_(size), shm_(name, size),
         sem_(name + "_sem", 1) { // 信号量初始值为1
@@ -23,10 +24,13 @@ public:
 
   void Read(void *buffer, size_t size, size_t offset = 0);
 
-  ~ShmBase() {
-    shm_.Close();
-    // 注意：析构函数不调用unlink，避免提前删除被其他进程使用的共享内存
-  }
+  void Close();
+
+  ~ShmBase(){
+    if(shm_.Data() != nullptr) {
+      delete[] data_;
+    }
+  };
 
 private:
   SharedMemory shm_;

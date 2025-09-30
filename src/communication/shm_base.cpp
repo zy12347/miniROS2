@@ -37,3 +37,9 @@ void ShmBase::Read(void *buffer, size_t size, size_t offset) {
   std::memcpy(buffer, static_cast<char *>(shm_.Data()) + offset, size);
   sem_.Post(); // 释放信号量
 }
+
+void ShmBase::Close() {
+  if (!shm_.Close()) {
+    throw std::runtime_error("Failed to close shared memory");
+  }
+}

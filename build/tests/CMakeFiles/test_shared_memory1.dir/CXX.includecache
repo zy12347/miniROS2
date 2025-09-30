@@ -72,13 +72,29 @@ variant
 sstream
 -
 
+../include/mini_ros2/pubsub/subscriber.h
+mini_ros2/communication/shm_base.h
+../include/mini_ros2/pubsub/mini_ros2/communication/shm_base.h
+mini_ros2/message/json.h
+../include/mini_ros2/pubsub/mini_ros2/message/json.h
+atomic
+-
+thread
+-
+functional
+-
+mutex
+-
+
 /mnt/e/WorkFiles/miniROS2/tests/test_shared_memory1.cpp
+unistd.h
+-
+iostream
+-
 mini_ros2/communication/shm_base.h
 /mnt/e/WorkFiles/miniROS2/tests/mini_ros2/communication/shm_base.h
 mini_ros2/message/json.h
 /mnt/e/WorkFiles/miniROS2/tests/mini_ros2/message/json.h
-iostream
--
-unistd.h
--
+mini_ros2/pubsub/subscriber.h
+/mnt/e/WorkFiles/miniROS2/tests/mini_ros2/pubsub/subscriber.h
 

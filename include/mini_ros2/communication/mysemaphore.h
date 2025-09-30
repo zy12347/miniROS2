@@ -8,10 +8,10 @@
 
 class MySemaphore {
 public:
+  MySemaphore() = default;
   MySemaphore(const std::string &name, unsigned int value)
       : name_(name), sem_(nullptr), is_owner_(false), value_(value) {
-    if (name_.empty() || name_[0] != '/' ||
-        name_.find('/', 1) != std::string::npos) {
+    if (name_.empty() || name_[0] != '/') {
       throw std::invalid_argument("Invalid name for Semaphore");
     }
   }

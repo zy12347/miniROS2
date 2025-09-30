@@ -1,5 +1,90 @@
-#include "JsonValue.h"
+#include "Json.h"
 
+
+void JsonValue::copyData(const JsonValue& other) {
+    switch (other.type_) {
+        case JsonType::Null:
+            // 无需操作
+            break;
+        case JsonType::Bool:
+            data_.bool_val = other.data_.bool_val;
+            break;
+        case JsonType::Int:
+            data_.int_val = other.data_.int_val;
+            break;
+        case JsonType::Double:
+            data_.double_val = other.data_.double_val;
+            break;
+        case JsonType::String:
+            data_.str_val = new std::string(*other.data_.str_val);
+            break;
+        case JsonType::Array:
+            data_.arr_val = new JsonArray(*other.data_.arr_val);
+            break;
+        case JsonType::Object:
+            data_.obj_val = new JsonObject(*other.data_.obj_val);
+            break;
+    }
+}
+
+std::string JsonValue::serialize() const {
+    std::stringstream ss;
+    switch (type_) {
+        case JsonType::Null:
+            ss << "null";
+            break;
+        case JsonType::Bool:
+            ss << (data_.bool_val ? "true" : "false");
+            break;
+        case JsonType::Int:
+            ss << data_.int_val;
+            break;
+        case JsonType::Double:
+            ss << data_.double_val;
+            break;
+        case JsonType::String:
+            ss << "\"" << escapeString(*data_.str_val) << "\"";
+            break;
+        case JsonType::Array:
+            ss << "[";
+            for (size_t i = 0; i < data_.arr_val->size(); ++i) {
+                if (i > 0) ss << ",";
+                ss << (*data_.arr_val)[i].serialize();
+            }
+            ss << "]";
+            break;
+        case JsonType::Object:
+            ss << "{";
+            size_t i = 0;
+            for (const auto& pair : *data_.obj_val) {
+                if (i > 0) ss << ",";
+                ss << "\"" << escapeString(pair.first) << "\":" << pair.second.serialize();
+                ++i;
+            }
+            ss << "}";
+            break;
+    }
+    return ss.str();
+}
+
+std::string JsonValue::escapeString(const std::string& str) const {
+    std::string res;
+    for (char c : str) {
+        switch (c) {
+            case '"':  res += "\\\""; break;
+            case '\\': res += "\\\\"; break;
+            case '\b': res += "\\b";  break;
+            case '\f': res += "\\f";  break;
+            case '\n': res += "\\n";  break;
+            case '\r': res += "\\r";  break;
+            case '\t': res += "\\t";  break;
+            default:   res += c;
+        }
+    }
+    return res;
+}
+
+/*
 // 类型转换实现
 bool JsonValue::asBool() const {
     assert(isBool());
@@ -68,7 +153,7 @@ void JsonValue::set(const std::string& key, JsonValue& value) {
 }
 
 // 访问器实现
-JsonValue JsonValue::operator[](size_t index) {
+std::unique_ptr<JsonValue> JsonValue::operator[](size_t index) {
     assert(isArray());
     if (index < asArray().size()) {
         return asArray()[index];
@@ -76,7 +161,7 @@ JsonValue JsonValue::operator[](size_t index) {
     return JsonValue();
 }
 
-const JsonValue JsonValue::operator[](size_t index) const {
+const std::unique_ptr<JsonValue> JsonValue::operator[](size_t index) const {
     assert(isArray());
     if (index < asArray().size()) {
         return asArray()[index];
@@ -84,7 +169,7 @@ const JsonValue JsonValue::operator[](size_t index) const {
     return JsonValue();
 }
 
-JsonValue JsonValue::operator[](const std::string& key) {
+std::unique_ptr<JsonValue> JsonValue::operator[](const std::string& key) {
     assert(isObject());
     auto it = asObject().find(key);
     if (it != asObject().end()) {
@@ -94,7 +179,7 @@ JsonValue JsonValue::operator[](const std::string& key) {
     return asObject()[key];
 }
 
-const JsonValue JsonValue::operator[](const std::string& key) const {
+const std::unique_ptr<JsonValue> JsonValue::operator[](const std::string& key) const {
     assert(isObject());
     auto it = asObject().find(key);
     if (it != asObject().end()) {
@@ -103,13 +188,13 @@ const JsonValue JsonValue::operator[](const std::string& key) const {
     asObject()[key] = JsonValue();
     return asObject()[key];
 }
-
+*/
 // 反序列化实现（简化版）
-JsonValue JsonValue::deserialize(const std::string& json) {
-    // 实际实现需要复杂的解析逻辑
-    // 这里仅作为示例返回一个空对象
-    return JsonValue();
-}
+// JsonValue JsonValue::deserialize(const std::string& json) {
+//     // 实际实现需要复杂的解析逻辑
+//     // 这里仅作为示例返回一个空对象
+//     return JsonValue();
+// }
 
 /*
 C++17

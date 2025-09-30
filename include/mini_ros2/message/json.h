@@ -1,4 +1,379 @@
 #pragma once
+#include <string>
+#include <vector>
+#include <map>
+#include <cassert>
+#include <stdexcept>
+#include <sstream>
+#include <memory>
+
+// JSON 支持的类型枚举（标签）
+enum class JsonType {
+    Null,
+    Bool,
+    Int,
+    Double,
+    String,
+    Array,
+    Object
+};
+
+// 前置声明
+class JsonValue;
+
+// 数组和对象的类型定义
+using JsonArray = std::vector<JsonValue>;
+using JsonObject = std::map<std::string, JsonValue>;
+
+// JSON 值类：使用标签联合实现多类型存储
+class JsonValue {
+private:
+    // 类型标签，标识当前存储的具体类型
+    JsonType type_;
+    
+    // 联合：存储不同类型的值（共享同一块内存）
+    union Data {
+        bool bool_val;                // 布尔值
+        int int_val;                  // 整数
+        double double_val;            // 浮点数
+        std::string* str_val;         // 字符串（用指针避免联合中存储非POD类型）
+        JsonArray* arr_val;           // 数组（指针）
+        JsonObject* obj_val;          // 对象（指针）
+        
+        // 联合的构造函数和析构函数需要显式定义
+        Data() {}
+        ~Data() {}
+    } data_;
+
+    // 辅助函数：销毁当前类型的数据
+    void destroyData() {
+        switch (type_) {
+            case JsonType::String:
+                delete data_.str_val;
+                break;
+            case JsonType::Array:
+                delete data_.arr_val;
+                break;
+            case JsonType::Object:
+                delete data_.obj_val;
+                break;
+            default:
+                // 其他类型不需要动态内存管理
+                break;
+        }
+    }
+
+    // 辅助函数：复制数据（用于拷贝构造和赋值）
+    void copyData(const JsonValue& other);
+
+public:
+    // 构造函数：默认构造为Null类型
+    JsonValue() : type_(JsonType::Null) {}
+
+    // 拷贝构造函数
+    JsonValue(const JsonValue& other) : type_(other.type_) {
+        copyData(other);
+    }
+
+    // 移动构造函数
+    JsonValue(JsonValue&& other) noexcept : type_(other.type_) {
+        // 转移指针所有权，避免内存泄漏
+        switch (type_) {
+            case JsonType::String:
+                data_.str_val = other.data_.str_val;
+                other.data_.str_val = nullptr;
+                break;
+            case JsonType::Array:
+                data_.arr_val = other.data_.arr_val;
+                other.data_.arr_val = nullptr;
+                break;
+            case JsonType::Object:
+                data_.obj_val = other.data_.obj_val;
+                other.data_.obj_val = nullptr;
+                break;
+            default:
+                data_ = other.data_;
+                break;
+        }
+        other.type_ = JsonType::Null;
+    }
+
+    // 类型特定的构造函数
+    JsonValue(bool value) : type_(JsonType::Bool) {
+        data_.bool_val = value;
+    }
+
+    JsonValue(int value) : type_(JsonType::Int) {
+        data_.int_val = value;
+    }
+
+    JsonValue(double value) : type_(JsonType::Double) {
+        data_.double_val = value;
+    }
+
+    JsonValue(const std::string& value) : type_(JsonType::String) {
+        data_.str_val = new std::string(value);
+    }
+
+    JsonValue(const char* value) : type_(JsonType::String) {
+        data_.str_val = new std::string(value);
+    }
+
+    JsonValue(const JsonArray& value) : type_(JsonType::Array) {
+        data_.arr_val = new JsonArray(value);
+    }
+
+    JsonValue(const JsonObject& value) : type_(JsonType::Object) {
+        data_.obj_val = new JsonObject(value);
+    }
+
+    // 析构函数：清理动态分配的内存
+    ~JsonValue() {
+        destroyData();
+    }
+
+    // 赋值运算符
+    JsonValue& operator=(const JsonValue& other) {
+        if (this != &other) {
+            destroyData();      // 先销毁当前数据
+            type_ = other.type_;
+            copyData(other);    // 复制新数据
+        }
+        return *this;
+    }
+
+    // 移动赋值运算符
+    JsonValue& operator=(JsonValue&& other) noexcept {
+        if (this != &other) {
+            destroyData();      // 先销毁当前数据
+            type_ = other.type_;
+            
+            // 转移指针所有权
+            switch (type_) {
+                case JsonType::String:
+                    data_.str_val = other.data_.str_val;
+                    other.data_.str_val = nullptr;
+                    break;
+                case JsonType::Array:
+                    data_.arr_val = other.data_.arr_val;
+                    other.data_.arr_val = nullptr;
+                    break;
+                case JsonType::Object:
+                    data_.obj_val = other.data_.obj_val;
+                    other.data_.obj_val = nullptr;
+                    break;
+                default:
+                    data_ = other.data_;
+                    break;
+            }
+            
+            other.type_ = JsonType::Null;
+        }
+        return *this;
+    }
+
+    JsonValue& operator=(const std::string& other) {
+        if (type_ != JsonType::String) {
+            destroyData();      // 先销毁当前数据
+            type_ = JsonType::String;
+        }
+        data_.str_val = new std::string(other);
+        return *this;
+    }
+
+    JsonValue& operator=(const char* other) {
+        if (type_ != JsonType::String) {
+            destroyData();      // 先销毁当前数据
+            type_ = JsonType::String;
+        }
+        data_.str_val = new std::string(other);
+        return *this;
+    }
+
+    JsonValue& operator=(const int other) {
+        if (type_ != JsonType::Int) {
+            destroyData();      // 先销毁当前数据
+            type_ = JsonType::Int;
+        }
+        data_.int_val = other;
+        return *this;
+    }
+
+    JsonValue& operator=(const double other) {
+        if (type_ != JsonType::Double) {
+            destroyData();      // 先销毁当前数据
+            type_ = JsonType::Double;
+        }
+        data_.double_val = other;
+        return *this;
+    }
+
+    JsonValue& operator=(const bool other) {
+        if (type_ != JsonType::Bool) {
+            destroyData();      // 先销毁当前数据
+            type_ = JsonType::Bool;
+        }
+        data_.bool_val = other;
+        return *this;
+    }
+
+    JsonValue& operator=(const JsonArray& other) {
+        if (type_ != JsonType::Array) {
+            destroyData();      // 先销毁当前数据
+            type_ = JsonType::Array;
+        }
+        data_.arr_val = new JsonArray(other);
+        return *this;
+    }
+
+    JsonValue& operator=(const JsonObject& other) {
+        if (type_ != JsonType::Object) {
+            destroyData();      // 先销毁当前数据
+            type_ = JsonType::Object;
+        }
+        data_.obj_val = new JsonObject(other);
+        return *this;
+    }
+
+    // 类型判断方法
+    JsonType type() const { return type_; }
+    bool isNull() const { return type_ == JsonType::Null; }
+    bool isBool() const { return type_ == JsonType::Bool; }
+    bool isInt() const { return type_ == JsonType::Int; }
+    bool isDouble() const { return type_ == JsonType::Double; }
+    bool isString() const { return type_ == JsonType::String; }
+    bool isArray() const { return type_ == JsonType::Array; }
+    bool isObject() const { return type_ == JsonType::Object; }
+
+    // 安全访问方法：带类型检查，不匹配则抛出异常
+    bool asBool() const {
+        if (!isBool()) {
+            throw std::domain_error("JsonValue: not a boolean");
+        }
+        return data_.bool_val;
+    }
+
+    int asInt() const {
+        if (!isInt()) {
+            throw std::domain_error("JsonValue: not an integer");
+        }
+        return data_.int_val;
+    }
+
+    double asDouble() const {
+        if (!isDouble()) {
+            throw std::domain_error("JsonValue: not a double");
+        }
+        return data_.double_val;
+    }
+
+    const std::string& asString() const {
+        if (!isString()) {
+            throw std::domain_error("JsonValue: not a string");
+        }
+        return *data_.str_val;
+    }
+
+    const JsonArray& asArray() const {
+        if (!isArray()) {
+            throw std::domain_error("JsonValue: not an array");
+        }
+        return *data_.arr_val;
+    }
+
+    JsonArray& asArray() {
+        if (!isArray()) {
+            throw std::domain_error("JsonValue: not an array");
+        }
+        return *data_.arr_val;
+    }
+
+    const JsonObject& asObject() const {
+        if (!isObject()) {
+            throw std::domain_error("JsonValue: not an object");
+        }
+        return *data_.obj_val;
+    }
+
+    JsonObject& asObject() {
+        if (!isObject()) {
+            throw std::domain_error("JsonValue: not an object");
+        }
+        return *data_.obj_val;
+    }
+
+    // 数组和对象的操作方法
+    void push_back(const JsonValue& value) {
+        if (!isArray()) {
+            throw std::domain_error("JsonValue: cannot push_back to non-array");
+        }
+        data_.arr_val->push_back(value);
+    }
+
+    size_t size() const {
+        if (isArray()) {
+            return data_.arr_val->size();
+        } else if (isObject()) {
+            return data_.obj_val->size();
+        }
+        throw std::domain_error("JsonValue: size() only valid for array/object");
+    }
+
+    // 索引访问（数组）
+    const JsonValue& operator[](size_t index) const {
+        if (!isArray()) {
+            throw std::domain_error("JsonValue: [] index not valid for non-array");
+        }
+        if (index >= data_.arr_val->size()) {
+            throw std::out_of_range("JsonValue: array index out of range");
+        }
+        return (*data_.arr_val)[index];
+    }
+
+    JsonValue& operator[](size_t index) {
+        if (!isArray()) {
+            throw std::domain_error("JsonValue: [] index not valid for non-array");
+        }
+        if (index >= data_.arr_val->size()) {
+            throw std::out_of_range("JsonValue: array index out of range");
+        }
+        return (*data_.arr_val)[index];
+    }
+
+    // 键访问（对象）
+    const JsonValue& operator[](const std::string& key) const {
+        if (!isObject()) {
+            throw std::domain_error("JsonValue: [] key not valid for non-object");
+        }
+        auto it = data_.obj_val->find(key);
+        if (it == data_.obj_val->end()) {
+            throw std::out_of_range("JsonValue: object key not found");
+        }
+        return it->second;
+    }
+
+    JsonValue& operator[](const std::string& key) {
+        if(isNull()) {
+            type_ = JsonType::Object;
+            data_.obj_val = new JsonObject();
+        }
+        if (!isObject()) {
+            throw std::domain_error("JsonValue: [] key not valid for non-object");
+        }
+        return (*data_.obj_val)[key]; // 自动插入新键值对（如果不存在）
+    }
+
+    // 序列化：将JSON值转换为字符串
+    std::string serialize() const;
+
+private:
+    // 辅助函数：转义字符串中的特殊字符
+    std::string escapeString(const std::string& str) const;
+};
+
+
+/*
+#pragma once
 
 #include <string>
 #include <vector>
@@ -11,8 +386,8 @@
 class JsonValue;
 
 // 类型定义
-using JsonArray = std::vector<JsonValue>;
-using JsonObject = std::map<std::string, JsonValue>;
+using JsonArray = std::vector<std::unique_ptr<JsonValue>>;
+using JsonObject = std::map<std::string, std::unique_ptr<JsonValue>>;
 
 // JSON值的类型枚举
 enum class JsonType {
@@ -37,7 +412,7 @@ public:
     virtual std::string serialize() const = 0;
     
     // 反序列化（静态方法）
-    static JsonValue deserialize(const std::string& json);
+    // JsonValue deserialize(const std::string& json);
     
     // 类型检查
     bool isNull() const { return type() == JsonType::Null; }
@@ -49,30 +424,28 @@ public:
     bool isObject() const { return type() == JsonType::Object; }
     
     // 类型安全的访问（需要先通过isXXX()检查类型）
-    bool asBool() const;
-    int asInt() const;
-    double asDouble() const;
-    const std::string& asString() const;
-    const JsonArray& asArray() const;
-    const JsonObject& asObject() const;
-    
-    // 数组和对象的修改接口
-    JsonArray& asArray();
-    JsonObject& asObject();
+    virtual bool asBool() const;
+    virtual int asInt() const;
+    virtual double asDouble() const;
+    virtual const std::string& asString() const;
+    virtual const JsonArray& asArray() const;
+    virtual const JsonObject& asObject() const;
     
     // 数组操作
     void push_back(std::unique_ptr<JsonValue> value);
     size_t size() const;
+
+
     
     // 对象操作
-    bool hasKey(const std::string& key) const;
-    void set(const std::string& key, JsonValue value);
+    // bool hasKey(const std::string& key) const;
+    // void set(const std::string& key, JsonValue value);
     
     // 访问器
-    JsonValue operator[](size_t index);
-    const JsonValue operator[](size_t index) const;
-    JsonValue operator[](const std::string& key);
-    const JsonValue operator[](const std::string& key) const;
+    std::unique_ptr<JsonValue> operator[](size_t index);
+    const std::unique_ptr<JsonValue>& operator[](size_t index) const;
+    std::unique_ptr<JsonValue> operator[](const std::string& key);
+    const std::unique_ptr<JsonValue>& operator[](const std::string& key) const;
 };
 
 // 派生类实现
@@ -80,6 +453,8 @@ class JsonNull : public JsonValue {
 public:
     JsonType type() const override { return JsonType::Null; }
     std::string serialize() const override { return "null"; }
+
+    
 };
 
 class JsonBool : public JsonValue {
@@ -88,11 +463,6 @@ public:
     JsonType type() const override { return JsonType::Bool; }
     std::string serialize() const override { return value_ ? "true" : "false"; }
     bool value() const { return value_; }
-
-    JsonValue& operator=(bool value){
-        value_ = value;
-        return *this;
-    };
 private:
     bool value_;
 };
@@ -104,10 +474,6 @@ public:
     std::string serialize() const override { return std::to_string(value_); }
     int value() const { return value_; }
 
-    JsonValue& operator=(int value){
-        value_ = value;
-        return *this;
-    };
 private:
     int value_;
 };
@@ -122,11 +488,6 @@ public:
         return ss.str();
     }
     double value() const { return value_; }
-
-    JsonValue& operator=(double value){
-        value_ = value;
-        return *this;
-    };
 private:
     double value_;
 };
@@ -139,11 +500,6 @@ public:
         return "\"" + escapeString(value_) + "\""; 
     }
     const std::string& value() const { return value_; }
-
-    JsonValue& operator=(const std::string& value){
-        value_ = value;
-        return *this;
-    };
 private:
     std::string value_;
     std::string escapeString(const std::string& str) const {
@@ -173,18 +529,13 @@ public:
         std::string res = "[";
         for (size_t i = 0; i < value_.size(); ++i) {
             if (i > 0) res += ",";
-            res += value_[i].serialize();
+            res += value_[i]->serialize();
         }
         res += "]";
         return res;
     }
     JsonArray& value() { return value_; }
     const JsonArray& value() const { return value_; }
-
-    JsonValue& operator=(const JsonArray& value){
-        value_ = value;
-        return *this;
-    };
 private:
     JsonArray value_;
 };
@@ -199,7 +550,7 @@ public:
         size_t i = 0;
         for (const auto& pair : value_) {
             if (i > 0) res += ",";
-            res += "\"" + pair.first + "\":" + pair.second.serialize();
+            res += "\"" + pair.first + "\":" + pair.second->serialize();
             ++i;
         }
         res += "}";
@@ -208,13 +559,11 @@ public:
     JsonObject& value() { return value_; }
     const JsonObject& value() const { return value_; }
 
-    JsonValue& operator=(const JsonObject& value){
-        value_ = value;
-        return *this;
-    };
 private:
     JsonObject value_;
 };
+
+*/
 
 /*
 '''

@@ -186,6 +186,21 @@ test_node/fast:
 .PHONY : test_node/fast
 
 # Convenience name for target.
+tests/CMakeFiles/test_shared_memory1.dir/rule:
+	cd /mnt/e/WorkFiles/miniROS2/build && $(MAKE) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_shared_memory1.dir/rule
+.PHONY : tests/CMakeFiles/test_shared_memory1.dir/rule
+
+# Convenience name for target.
+test_shared_memory1: tests/CMakeFiles/test_shared_memory1.dir/rule
+
+.PHONY : test_shared_memory1
+
+# fast build rule for target.
+test_shared_memory1/fast:
+	cd /mnt/e/WorkFiles/miniROS2/build && $(MAKE) -f tests/CMakeFiles/test_shared_memory1.dir/build.make tests/CMakeFiles/test_shared_memory1.dir/build
+.PHONY : test_shared_memory1/fast
+
+# Convenience name for target.
 tests/CMakeFiles/test_shared_memory.dir/rule:
 	cd /mnt/e/WorkFiles/miniROS2/build && $(MAKE) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_shared_memory.dir/rule
 .PHONY : tests/CMakeFiles/test_shared_memory.dir/rule
@@ -362,6 +377,33 @@ test_shared_memory.cpp.s:
 	cd /mnt/e/WorkFiles/miniROS2/build && $(MAKE) -f tests/CMakeFiles/test_shared_memory.dir/build.make tests/CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.s
 .PHONY : test_shared_memory.cpp.s
 
+test_shared_memory1.o: test_shared_memory1.cpp.o
+
+.PHONY : test_shared_memory1.o
+
+# target to build an object file
+test_shared_memory1.cpp.o:
+	cd /mnt/e/WorkFiles/miniROS2/build && $(MAKE) -f tests/CMakeFiles/test_shared_memory1.dir/build.make tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o
+.PHONY : test_shared_memory1.cpp.o
+
+test_shared_memory1.i: test_shared_memory1.cpp.i
+
+.PHONY : test_shared_memory1.i
+
+# target to preprocess a source file
+test_shared_memory1.cpp.i:
+	cd /mnt/e/WorkFiles/miniROS2/build && $(MAKE) -f tests/CMakeFiles/test_shared_memory1.dir/build.make tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.i
+.PHONY : test_shared_memory1.cpp.i
+
+test_shared_memory1.s: test_shared_memory1.cpp.s
+
+.PHONY : test_shared_memory1.s
+
+# target to generate assembly for a file
+test_shared_memory1.cpp.s:
+	cd /mnt/e/WorkFiles/miniROS2/build && $(MAKE) -f tests/CMakeFiles/test_shared_memory1.dir/build.make tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.s
+.PHONY : test_shared_memory1.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -375,6 +417,7 @@ help:
 	@echo "... test_command_adapter"
 	@echo "... test_service"
 	@echo "... test_node"
+	@echo "... test_shared_memory1"
 	@echo "... test_shared_memory"
 	@echo "... test_command_adapter.o"
 	@echo "... test_command_adapter.i"
@@ -394,6 +437,9 @@ help:
 	@echo "... test_shared_memory.o"
 	@echo "... test_shared_memory.i"
 	@echo "... test_shared_memory.s"
+	@echo "... test_shared_memory1.o"
+	@echo "... test_shared_memory1.i"
+	@echo "... test_shared_memory1.s"
 .PHONY : help
 
 

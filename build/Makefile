@@ -189,6 +189,19 @@ test_node/fast:
 .PHONY : test_node/fast
 
 #=============================================================================
+# Target rules for targets named test_shared_memory1
+
+# Build rule for target.
+test_shared_memory1: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 test_shared_memory1
+.PHONY : test_shared_memory1
+
+# fast build rule for target.
+test_shared_memory1/fast:
+	$(MAKE) -f tests/CMakeFiles/test_shared_memory1.dir/build.make tests/CMakeFiles/test_shared_memory1.dir/build
+.PHONY : test_shared_memory1/fast
+
+#=============================================================================
 # Target rules for targets named test_shared_memory
 
 # Build rule for target.
@@ -215,6 +228,7 @@ help:
 	@echo "... test_command_adapter"
 	@echo "... test_service"
 	@echo "... test_node"
+	@echo "... test_shared_memory1"
 	@echo "... test_shared_memory"
 .PHONY : help
 

@@ -11,6 +11,11 @@ target_link_libraries(test_shared_memory
   PRIVATE mini_ros2_lib 
 )
 
+add_executable(test_shared_memory1 test_shared_memory1.cpp)
+target_link_libraries(test_shared_memory1 
+  PRIVATE mini_ros2_lib 
+)
+
 add_executable(test_service test_service.cpp)
 target_link_libraries(test_service 
   PRIVATE mini_ros2_lib 

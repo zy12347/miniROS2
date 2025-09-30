@@ -65,5 +65,6 @@ set(CMAKE_DEPEND_INFO_FILES
   "tests/CMakeFiles/test_command_adapter.dir/DependInfo.cmake"
   "tests/CMakeFiles/test_service.dir/DependInfo.cmake"
   "tests/CMakeFiles/test_node.dir/DependInfo.cmake"
+  "tests/CMakeFiles/test_shared_memory1.dir/DependInfo.cmake"
   "tests/CMakeFiles/test_shared_memory.dir/DependInfo.cmake"
   )

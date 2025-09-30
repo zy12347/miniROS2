@@ -72,13 +72,11 @@ variant
 sstream
 -
 
-/mnt/e/WorkFiles/miniROS2/tests/test_shared_memory.cpp
+/mnt/e/WorkFiles/miniROS2/tests/test_shared_memory1.cpp
 mini_ros2/communication/shm_base.h
 /mnt/e/WorkFiles/miniROS2/tests/mini_ros2/communication/shm_base.h
 mini_ros2/message/json.h
 /mnt/e/WorkFiles/miniROS2/tests/mini_ros2/message/json.h
-time.h
-/mnt/e/WorkFiles/miniROS2/tests/time.h
 iostream
 -
 unistd.h

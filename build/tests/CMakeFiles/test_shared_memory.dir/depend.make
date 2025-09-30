@@ -4,5 +4,6 @@
 tests/CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o: ../include/mini_ros2/communication/mysemaphore.h
 tests/CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o: ../include/mini_ros2/communication/shared_memory.h
 tests/CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o: ../include/mini_ros2/communication/shm_base.h
+tests/CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o: ../include/mini_ros2/message/json.h
 tests/CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o: ../tests/test_shared_memory.cpp
 

@@ -11,4 +11,4 @@ add_subdirectory(src)        # 核心库
 add_subdirectory(cli)        # 命令行工具
 add_subdirectory(tests)      # 单元测试
 add_subdirectory(examples)   # 示例程序（可选，可通过 option 控制）
-add_subdirectory(third_party)# 第三方依赖（如需要编译的库）
+# add_subdirectory(third_party)# 第三方依赖（如需要编译的库）

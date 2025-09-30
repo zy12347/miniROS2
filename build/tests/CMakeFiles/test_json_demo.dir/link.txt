@@ -1,0 +1,1 @@
+/usr/bin/c++     CMakeFiles/test_json_demo.dir/test_json_demo.cpp.o  -o test_json_demo  ../src/libmini_ros2_lib.a -lrt -lpthread 

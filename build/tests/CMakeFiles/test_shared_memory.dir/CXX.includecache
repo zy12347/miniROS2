@@ -1,0 +1,42 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+../include/mini_ros2/communication/mysemaphore.h
+fcntl.h
+-
+semaphore.h
+-
+stdexcept
+-
+string
+-
+
+../include/mini_ros2/communication/shared_memory.h
+stdexcept
+-
+string
+-
+
+../include/mini_ros2/communication/shm_base.h
+mysemaphore.h
+../include/mini_ros2/communication/mysemaphore.h
+shared_memory.h
+../include/mini_ros2/communication/shared_memory.h
+cstring
+-
+
+/mnt/e/WorkFiles/miniROS2/tests/test_shared_memory.cpp
+mini_ros2/communication/shm_base.h
+/mnt/e/WorkFiles/miniROS2/tests/mini_ros2/communication/shm_base.h
+time.h
+/mnt/e/WorkFiles/miniROS2/tests/time.h
+iostream
+-
+unistd.h
+-
+

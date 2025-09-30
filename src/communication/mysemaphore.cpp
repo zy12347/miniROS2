@@ -1,4 +1,4 @@
-#include "mysemaphore.h"
+#include "mini_ros2/communication/mysemaphore.h"
 
 MySemaphore::~MySemaphore() {
   if (sem_ != SEM_FAILED && sem_ != nullptr) {

@@ -1,23 +1,19 @@
+
+# Consider dependencies only in project.
+set(CMAKE_DEPENDS_IN_PROJECT_ONLY OFF)
+
 # The set of languages for which implicit dependencies are needed:
 set(CMAKE_DEPENDS_LANGUAGES
-  "CXX"
   )
-# The set of files for implicit dependencies of each language:
-set(CMAKE_DEPENDS_CHECK_CXX
-  "/mnt/e/WorkFiles/miniROS2/tests/test_shared_memory1.cpp" "/mnt/e/WorkFiles/miniROS2/build/tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o"
-  )
-set(CMAKE_CXX_COMPILER_ID "GNU")
 
-# The include file search paths:
-set(CMAKE_CXX_TARGET_INCLUDE_PATH
-  "../include"
-  "../tests/include/mini_ros2"
-  "../src/include/mini_ros2"
+# The set of dependency files which are needed:
+set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/home/zy/miniROS2/tests/test_shared_memory1.cpp" "tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o" "gcc" "tests/CMakeFiles/test_shared_memory1.dir/test_shared_memory1.cpp.o.d"
   )
 
 # Targets to which this target links.
 set(CMAKE_TARGET_LINKED_INFO_FILES
-  "/mnt/e/WorkFiles/miniROS2/build/src/CMakeFiles/mini_ros2_lib.dir/DependInfo.cmake"
+  "/home/zy/miniROS2/build/src/CMakeFiles/mini_ros2_lib.dir/DependInfo.cmake"
   )
 
 # Fortran module output directory.

@@ -1,5 +1,6 @@
 file(REMOVE_RECURSE
   "CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o"
+  "CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o.d"
   "test_shared_memory"
   "test_shared_memory.pdb"
 )

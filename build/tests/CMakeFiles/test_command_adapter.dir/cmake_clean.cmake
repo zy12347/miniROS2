@@ -1,5 +1,6 @@
 file(REMOVE_RECURSE
   "CMakeFiles/test_command_adapter.dir/test_command_adapter.cpp.o"
+  "CMakeFiles/test_command_adapter.dir/test_command_adapter.cpp.o.d"
   "test_command_adapter"
   "test_command_adapter.pdb"
 )

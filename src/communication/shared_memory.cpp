@@ -23,7 +23,7 @@ bool SharedMemory::Create() {
       shm_open(name_.c_str(), O_CREAT | O_EXCL | O_RDWR,
                0666); //创建共享内存并可读可写,如果已存在则创建失败.0666表示权限
   if (fd_ == -1) {
-    std::cout << "shm_open failed" << std::endl;
+    std::cout << "shm_open failed: " << name_ << std::endl;
     return false; // 创建失败
   }
   if (ftruncate(fd_, size_) == -1) { //设置共享内存的大小

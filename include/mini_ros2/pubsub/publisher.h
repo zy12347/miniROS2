@@ -1,30 +1,72 @@
 #pragma once
 #include "mini_ros2/communication/shm_base.h"
 #include "mini_ros2/message/json.h"
-#include <string>
+#include "mini_ros2/message/qos_buffer.h"
+#include <iostream>
 #include <memory>
+#include <string>
 
+class PublisherBase {
+public:
+  virtual ~PublisherBase() = default; // 虚析构函数
+  // 可添加通用接口（如关闭发布者）
+};
+
+class Node;
 #define POST_EVENT(...) Publisher::Publish(__VA_ARGS__)
-class Publisher {
- public:
-    Publisher(std::string& topic) : topic_(topic){};
 
-    Publisher(std::string& topic, int host_id) : topic_(topic), host_id_(host_id){};
-    ~Publisher() = default;
-    int Publish(const std::string& event, const JsonValue& data, int depth);
-    int AsyncService(const std::string& topic, const std::string& event, const JsonValue& data, int depth = 1);
-    static int Publish(const std::string& topic, const std::string& event, const JsonValue& data, int depth = 1);
-    static int32_t PostEvent(const std::string& topic, const std::string& event, const JsonValue& data, int depth = 1);
-    static int32_t SyncService(const std::string& topic, const std::string& event, const JsonValue& data, int depth = 1);
-    void SetHostId(int host) { host_id_ = host; };
+template <typename MsgT> class Publisher : public PublisherBase {
+  friend class Node;
 
- private:
-    // int count;
-    int32_t host_id_;
+public:
+  Publisher(std::string &topic) : topic_(topic){};
 
-    std::string topic_;
+  Publisher(std::string &topic, int host_id)
+      : topic_(topic), host_id_(host_id){};
+  // Publisher(const Publisher &) = delete;
+  // Publisher &operator=(const Publisher &) = delete;
+  // Publisher(Publisher &&) = delete;
+  // Publisher &operator=(Publisher &&) = delete;
 
-    std::shared_ptr<ShmBase> shm_;
+  ~Publisher() = default;
+  int publish(const std::string &event, const MsgT &data, int depth = 10) {
+    std::string data_str = data.serialize();
+    std::string topic_str = topic_ + "_" + event;
+    if (shm_ == nullptr) {
+      shm_ = std::make_shared<ShmBase>(topic_str, data_str.size());
+      shm_->Create();
+    }
+    std::cout << data_str << std::endl;
+    // shm_->Open();
+    shm_->Write(data_str.c_str(), data_str.size());
+    return 0;
+  }
+  int asyncService(const std::string &topic, const std::string &event,
+                   const MsgT &data, int depth = 10);
+  static int publish(const std::string &topic, const std::string &event,
+                     const MsgT &data, int depth = 10) {
+    std::string data_str = data.serialize();
+    std::string topic_str = topic + "_" + event;
+    ShmBase shm(topic_str, depth);
+    shm.Create();
+    shm.Write(data_str.c_str(), data_str.size());
+    return 0;
+  }
+  static int32_t postEvent(const std::string &topic, const std::string &event,
+                           const MsgT &data, int depth = 10);
+  static int32_t syncService(const std::string &topic, const std::string &event,
+                             const MsgT &data, int depth = 10);
+  void setHostId(int host) { host_id_ = host; };
 
-    long long time_stamp_ = 0;
+  std::string getTopicName() const { return topic_; }
+
+private:
+  // int count;
+  int32_t host_id_;
+
+  std::string topic_;
+
+  std::shared_ptr<ShmBase> shm_;
+
+  long long time_stamp_ = 0;
 };

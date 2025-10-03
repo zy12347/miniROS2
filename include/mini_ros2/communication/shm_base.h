@@ -26,17 +26,10 @@ public:
 
   void Close();
 
-  ~ShmBase(){
-    if(shm_.Data() != nullptr) {
-      delete[] data_;
-    }
-  };
-
 private:
   SharedMemory shm_;
   MySemaphore sem_;
   std::string name_;
-  void *data_;
   size_t size_;
   size_t offset_;
 };

@@ -1,0 +1,79 @@
+#include "mini_ros2/pubsub/publisher.h"
+#include "mini_ros2/pubsub/subscriber.h"
+#include "mini_ros2/timer.h"
+#include <mutex>
+#include <string>
+#include <vector>
+
+class Node {
+public:
+  Node(const std::string &&node_name, const std::string &&name_space = "",
+       int domain_id = 0);
+  Node(const std::string &node_name, const std::string &name_space = "",
+       int domain_id = 0);
+  ~Node() = default;
+
+  bool init();
+  void shutDown();
+  void spin();
+  bool isActive();
+  // -------------------------- Publisher 相关 --------------------------
+  template <typename MsgT>
+  std::shared_ptr<Publisher<MsgT>>
+  createPublisher(const std::string &topic_name, size_t qos_depth = 10) {
+    // 生成完整话题路径（结合命名空间，避免冲突）
+    std::string full_topic = shm_prefix_ + topic_name;
+
+    // 创建具体Publisher实例（假设Publisher构造函数需要话题名和QoS深度）
+    auto pub = std::make_shared<Publisher<MsgT>>(full_topic, qos_depth);
+
+    // 线程安全地加入容器（基类指针转换）
+    std::lock_guard<std::mutex> lock(node_mutex_);
+    publishers_.push_back(pub); // 自动转换为std::shared_ptr<PublisherBase>
+
+    return pub;
+  }
+
+  // -------------------------- Subscriber 相关 --------------------------
+  /**
+   * @brief 创建 Subscriber（唯一入口）
+   * @tparam MsgT 消息类型
+   * @param topic_name 话题名
+   * @param callback 消息回调函数（收到消息时触发）
+   * @param qos 简化QoS（缓存深度，默认10）
+   * @return 共享指针形式的 Subscriber
+   */
+  template <typename MsgT>
+  std::shared_ptr<Subscriber<MsgT>>
+  createSubscriber(const std::string &topic_name, const std::string &event_name,
+                   std::function<void(const MsgT &)> callback,
+                   size_t qos_depth = 10) {
+    std::string full_topic = shm_prefix_ + topic_name;
+
+    // 创建具体Subscriber实例（调用私有构造函数，依赖友元关系）
+    auto sub = std::make_shared<Subscriber<MsgT>>(full_topic);
+    // sub->SetCallback(callback); // 设置回调
+    sub->subscribe(event_name, callback);
+    // 若需要QoS深度，可补充sub->SetQosDepth(qos_depth);
+
+    // 线程安全地加入容器
+    std::lock_guard<std::mutex> lock(node_mutex_);
+    subscriptions_.push_back(sub); // 自动转换为std::shared_ptr<SubscriberBase>
+
+    return sub;
+  }
+
+  std::shared_ptr<Timer> createTimer(std::chrono::milliseconds period,
+                                     std::function<void()> callback);
+
+private:
+  std::vector<std::shared_ptr<PublisherBase>> publishers_;
+  std::vector<std::shared_ptr<SubscriberBase>> subscriptions_;
+  // Private members for managing publishers and subscriptions
+  int domain_id_;
+  std::string node_name_;
+  std::string name_space_;
+  bool is_active_ = false;
+  std::mutex node_mutex_;
+  std::string shm_prefix_;
+};

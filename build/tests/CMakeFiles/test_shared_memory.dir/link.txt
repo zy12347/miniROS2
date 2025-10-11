@@ -1,1 +1,0 @@
-/usr/bin/c++     CMakeFiles/test_shared_memory.dir/test_shared_memory.cpp.o  -o test_shared_memory  ../src/libmini_ros2_lib.a -lrt -lpthread 

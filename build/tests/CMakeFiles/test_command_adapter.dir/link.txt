@@ -1,1 +1,0 @@
-/usr/bin/c++     CMakeFiles/test_command_adapter.dir/test_command_adapter.cpp.o  -o test_command_adapter  ../src/libmini_ros2_lib.a -lrt -lpthread 

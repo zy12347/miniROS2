@@ -1,1 +1,0 @@
-/usr/bin/c++     CMakeFiles/test_service.dir/test_service.cpp.o  -o test_service  ../src/libmini_ros2_lib.a -lrt -lpthread 

@@ -1,0 +1,10 @@
+/build/
+/cmake-build-debug/
+/cmake-build-release/
+/cmake-build-release-coverage/
+/cmake-build-release-coverage-profile/
+/cmake-build-release-coverage-profile-coverage/
+/cmake-build-release-coverage-profile-coverage-coverage/
+/cmake-build-release-coverage-profile-coverage-coverage-coverage/
+/cmake-build-release-coverage-profile-coverage-coverage-coverage-coverage/
+/cmake-build-release-coverage-profile-coverage-coverage-coverage-coverage-coverage/

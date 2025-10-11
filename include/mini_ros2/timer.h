@@ -2,7 +2,6 @@
 class Timer {
 public:
   using Callback = std::function<void()>;
-  using Ptr = std::shared_ptr<Timer>;
 
   Timer(std::chrono::milliseconds period, Callback callback)
       : period_(period), callback_(std::move(callback)),
@@ -29,6 +28,18 @@ public:
 
   // 停止定时器（由 Node 主动调用）
   void stop() { is_active_ = false; }
+
+  void updatePeriod(std::chrono::milliseconds period) { period_ = period; }
+
+  void updateTriggerTime(std::chrono::steady_clock::time_point time) { last_triggered_ = time; }
+
+  bool isActive() { return is_active_; }
+
+  std::chrono::steady_clock::time_point getTriggerTime() { return last_triggered_; }
+
+  std::chrono::milliseconds getPeriod() { return period_; }
+
+  
 
 private:
   std::chrono::milliseconds period_;

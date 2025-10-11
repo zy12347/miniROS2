@@ -7,16 +7,13 @@
 #include "mini_ros2/node.h"
 #include "mini_ros2/pubsub/subscriber.h"
 int main() {
-  Node Node("test_node");
-  auto sub = Node.createSubscriber<JsonValue>(
-      "test", "test", [](const JsonValue &data) {
-        std::cout << "Received: " << data.serialize() << std::endl;
-      }); // topic event function
-  while (true) {
-    /* code */
-    sleep(1);
-  }
-
+  Node Node("test_node2");
+  // auto sub = Node.createSubscriber<JsonValue>(
+  //     "test", "test", [](const JsonValue &data) {
+  //       std::cout << "Received: " << data.serialize() << std::endl;
+  //     }); // topic event function
+  Node.printRegistry();
+  Node.spin();
   return 0;
   // ShmBase shm("/test_sem", 1024);
   // shm.Open();

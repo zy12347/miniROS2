@@ -8,6 +8,10 @@ void ShmBase::Create() {
     throw std::runtime_error("Failed to create semaphore");
   }
 }
+
+bool ShmBase::Exists() const {
+  return shm_.Exists();
+}
 void ShmBase::Write(const void *data, size_t size, size_t offset) {
   if (offset + size > shm_.Size()) {
     throw std::out_of_range("Write exceeds shared memory size");

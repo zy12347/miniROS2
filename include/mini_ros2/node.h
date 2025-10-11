@@ -1,22 +1,28 @@
 #include "mini_ros2/pubsub/publisher.h"
 #include "mini_ros2/pubsub/subscriber.h"
+#include "mini_ros2/communication/shm_manager.h"
 #include "mini_ros2/timer.h"
 #include <mutex>
 #include <string>
 #include <vector>
-
+#include <thread>
+#include <atomic>
+#include <csignal>
+#include <cstdlib>
+#include <unistd.h>
+#include <condition_variable>
 class Node {
 public:
   Node(const std::string &&node_name, const std::string &&name_space = "",
        int domain_id = 0);
   Node(const std::string &node_name, const std::string &name_space = "",
        int domain_id = 0);
-  ~Node() = default;
+  ~Node();
 
-  bool init();
   void shutDown();
   void spin();
-  bool isActive();
+  void stop();
+  bool isActive(){return spinning_;};
   // -------------------------- Publisher 相关 --------------------------
   template <typename MsgT>
   std::shared_ptr<Publisher<MsgT>>
@@ -30,7 +36,8 @@ public:
     // 线程安全地加入容器（基类指针转换）
     std::lock_guard<std::mutex> lock(node_mutex_);
     publishers_.push_back(pub); // 自动转换为std::shared_ptr<PublisherBase>
-
+    pub_topics_.push_back(topic_name);
+    shm_manager_->addPubTopic(node_id_, topic_name);
     return pub;
   }
 
@@ -52,28 +59,61 @@ public:
 
     // 创建具体Subscriber实例（调用私有构造函数，依赖友元关系）
     auto sub = std::make_shared<Subscriber<MsgT>>(full_topic);
+    std::cout << "createSubscriber: " << topic_name << " 1" << event_name << std::endl;
     // sub->SetCallback(callback); // 设置回调
     sub->subscribe(event_name, callback);
+    std::cout << "createSubscriber: " << topic_name << " 2" << event_name << std::endl;
     // 若需要QoS深度，可补充sub->SetQosDepth(qos_depth);
 
     // 线程安全地加入容器
     std::lock_guard<std::mutex> lock(node_mutex_);
+    std::cout << "createSubscriber: " << topic_name << " 3" << event_name << std::endl;
     subscriptions_.push_back(sub); // 自动转换为std::shared_ptr<SubscriberBase>
-
+    sub_topics_.push_back(topic_name);
+    shm_manager_->addSubTopic(node_id_, topic_name);
     return sub;
   }
 
-  std::shared_ptr<Timer> createTimer(std::chrono::milliseconds period,
+  void createTimer(std::chrono::milliseconds period,
                                      std::function<void()> callback);
 
+  void printRegistry();
+
 private:
+
+  void registerNode();
+  void unregisterNode();
+  void heartbeatLoop();
+  void spinLoop();
+  static void signalHandler(int signum);
   std::vector<std::shared_ptr<PublisherBase>> publishers_;
   std::vector<std::shared_ptr<SubscriberBase>> subscriptions_;
+
+  std::shared_ptr<ShmManager> shm_manager_ = nullptr;//共享内存管理器,管理节点状态,节点发现,节点注册等
+
+  std::vector<std::string> pub_topics_;//发布的话题列表
+  std::vector<std::string> sub_topics_;//订阅的话题列表
+
+  std::thread heartbeat_thread_;
+  std::atomic<bool> heartbeat_running_ = false;   // 心跳机制，定时更新节点状态
+  const int HEARTBEAT_INTERVAL         = 1;       // 秒
+  const int HEARTBEAT_TIMEOUT          = 3;       // 秒
+
+  std::thread spin_thread_;
+  std::atomic<bool> spinning_ = false;
+  std::condition_variable spin_cv_;//spin循环条件变量 事件处理循环
+
+  std::vector<std::shared_ptr<Timer>> timers_;
+  std::vector<std::function<void()>> callbacks_;
+
+  static Node* signal_handler_node_;//信号处理节点
   // Private members for managing publishers and subscriptions
   int domain_id_;
+  // 节点信息
   std::string node_name_;
+  uint32_t node_id_ = 0;
   std::string name_space_;
-  bool is_active_ = false;
   std::mutex node_mutex_;
+  std::mutex callback_mutex_;
   std::string shm_prefix_;
 };

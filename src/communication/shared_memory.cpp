@@ -44,6 +44,15 @@ bool SharedMemory::Create() {
   return true;
 }
 
+bool SharedMemory::Exists() const {
+  int fd = shm_open(name_.c_str(), O_RDONLY, 0666);
+  if (fd == -1) {
+    return false; // 不存在
+  }
+  close(fd);
+  return true;
+}
+
 bool SharedMemory::Open() {
   if (is_owner_) {
     return true; // 已经是创建者，直接返回

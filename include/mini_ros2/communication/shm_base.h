@@ -12,6 +12,7 @@ public:
   }
 
   void Create();
+  bool Exists() const; // 检查共享内存是否存在
   void Open() {
     if (!shm_.Open()) {
       throw std::runtime_error("Failed to open shared memory");

@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 int main() {
-  Node node("test_node");
+  Node node("test_node2");
   auto pub = node.createPublisher<JsonValue>("test");
   JsonValue json;
   json["name"] = "John";
@@ -17,12 +17,8 @@ int main() {
   json["is_student"] = true;
   json["height"] = 1.8;
   json["weight"] = 70;
-  while (true) {
-    sleep(1);
-    time_t cur_time = time(nullptr);
-    json["time"] = static_cast<int>(cur_time);
-    pub->publish("test", json);
-  }
+  node.printRegistry();
+  node.spin();
   return 0;
 }
 // ShmBase shm("/test_sem", 1024);

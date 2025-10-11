@@ -19,10 +19,16 @@ public:
 
   bool Create(); //创建共享内存
   bool Open();   //打开已存在的共享内存
+  bool Exists() const; //检查共享内存是否已存在
   void *Data(); //返回指向共享内存的指针,无类型指针,使用时必须强制转换
   bool Close();  //关闭共享内存
   bool Unlink(); //删除共享内存
   size_t Size() const { return size_; }
+  
+  // 引用计数相关
+  bool IncrementRefCount(); // 增加引用计数
+  bool DecrementRefCount(); // 减少引用计数
+  int GetRefCount(); // 获取当前引用计数
 
 private:
   std::string name_; //共享内存名称

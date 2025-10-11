@@ -18,6 +18,7 @@ int main() {
   json["height"] = 1.8;
   json["weight"] = 70;
   node.printRegistry();
+  pub->publish("test5", json);
   node.spin();
   return 0;
 }

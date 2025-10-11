@@ -1,6 +1,6 @@
 #pragma once
 #include "mini_ros2/communication/shm_base.h"
-#include "mini_ros2/message/json.h"
+#include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
 #include <atomic>
 #include <functional>
@@ -13,6 +13,7 @@ class SubscriberBase {
 public:
   virtual ~SubscriberBase() = default;
   // 可添加通用接口（如取消订阅）
+  virtual void execute() = 0;
 };
 
 class Node;
@@ -35,7 +36,7 @@ public:
   }
   void subscribe(const std::string &event) {
     subscribe(event, [](const MsgT &data) {
-      std::cout << data.serialize() << std::endl;
+      // std::cout << Serializer::serialize(data) << std::endl;
     });
   }
   void subscribe(const std::string &event,
@@ -45,11 +46,11 @@ public:
       return;
     }
     if (shm_ == nullptr) {
-      shm_ = std::make_shared<ShmBase>(topic_ + "_" + event, 1024);
+      // 订阅时创建共享内存
+      std::string shm_name = topic_ + "_" + event;
+      shm_ = std::make_shared<ShmBase>(shm_name);
     }
     shm_->Open();
-    is_running_ = true;
-    listen_thread_ = std::thread(&Subscriber<MsgT>::listenLoop, this);
   }
 
   void setCallback(std::function<void(const MsgT &data)> callback) {
@@ -60,16 +61,22 @@ public:
 
   std::string getTopicName() const { return topic_; }
 
-private:
-  void listenLoop() {
-    while (is_running_) {
-      char data[1024];
-      shm_->Read(data, 1024);
-      MsgT json = MsgT::deserialize(data);
-      callback_(json);
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+  void execute() {
+    // try {
+    size_t msg_serialize_size = shm_->getSize();
+    std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
+    uint8_t *data = new uint8_t[msg_serialize_size];
+    shm_->Read(data, msg_serialize_size);
+    MsgT msg;
+    Serializer::deserialize<MsgT>(data, msg_serialize_size, msg);
+    callback_(msg);
+    delete[] data;
+    // } catch (const std::exception &e) {
+    //   std::cerr << "Subscription listen error: " << e.what() << "\n";
+    // }
   }
+
+private:
   std::mutex mutex_;
   std::string topic_;
   std::shared_ptr<ShmBase> shm_;

@@ -1,9 +1,4 @@
 #include "mini_ros2/communication/shared_memory.h"
-#include <fcntl.h>
-#include <iostream>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 SharedMemory::~SharedMemory() {
   if (data_ != MAP_FAILED && data_ != nullptr) {

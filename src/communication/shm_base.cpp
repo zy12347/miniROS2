@@ -9,9 +9,7 @@ void ShmBase::Create() {
   }
 }
 
-bool ShmBase::Exists() const {
-  return shm_.Exists();
-}
+bool ShmBase::Exists() const { return shm_.Exists(); }
 void ShmBase::Write(const void *data, size_t size, size_t offset) {
   if (offset + size > shm_.Size()) {
     throw std::out_of_range("Write exceeds shared memory size");
@@ -23,7 +21,7 @@ void ShmBase::Write(const void *data, size_t size, size_t offset) {
     throw std::runtime_error("Shared memory not initialized");
   }
   sem_.Wait(); // 获取信号量
-  std::memcpy(static_cast<char *>(shm_.Data()) + offset, data, size);
+  std::memcpy(static_cast<uint8_t *>(shm_.Data()) + offset, data, size);
   sem_.Post(); // 释放信号量
 }
 
@@ -38,7 +36,7 @@ void ShmBase::Read(void *buffer, size_t size, size_t offset) {
     throw std::runtime_error("Shared memory not initialized");
   }
   sem_.Wait(); // 获取信号量
-  std::memcpy(buffer, static_cast<char *>(shm_.Data()) + offset, size);
+  std::memcpy(buffer, static_cast<uint8_t *>(shm_.Data()) + offset, size);
   sem_.Post(); // 释放信号量
 }
 

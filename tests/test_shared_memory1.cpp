@@ -8,10 +8,10 @@
 #include "mini_ros2/pubsub/subscriber.h"
 int main() {
   Node Node("test_node2");
-  // auto sub = Node.createSubscriber<JsonValue>(
-  //     "test", "test", [](const JsonValue &data) {
-  //       std::cout << "Received: " << data.serialize() << std::endl;
-  //     }); // topic event function
+  auto sub = Node.createSubscriber<JsonValue>(
+      "test", "test5", [](const JsonValue &data) {
+        std::cout << "Received: " << data.serialize() << std::endl;
+      }); // topic event function
   Node.printRegistry();
   Node.spin();
   return 0;

@@ -10,6 +10,10 @@ public:
       : name_(name), size_(size), shm_(name, size),
         sem_(name + "_sem", 1) { // 信号量初始值为1
   }
+  ShmBase(const std::string &name)
+      : name_(name), shm_(name), sem_(name + "_sem", 1) {
+    size_ = shm_.Size();
+  }
 
   void Create();
   bool Exists() const; // 检查共享内存是否存在
@@ -26,6 +30,8 @@ public:
   void Read(void *buffer, size_t size, size_t offset = 0);
 
   void Close();
+
+  size_t getSize() const { return size_; }
 
 private:
   SharedMemory shm_;

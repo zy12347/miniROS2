@@ -1,6 +1,6 @@
 #pragma once
 #include "mini_ros2/communication/shm_base.h"
-#include "mini_ros2/message/json.h"
+#include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
 #include <iostream>
 #include <memory>
@@ -30,26 +30,37 @@ public:
 
   ~Publisher() = default;
   int publish(const std::string &event, const MsgT &data, int depth = 10) {
-    std::string data_str = data.serialize();
+
+    size_t msg_serialize_size;
+    msg_serialize_size = Serializer::getSerializedSize<MsgT>(data);
+    std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
+    uint8_t *buffer = new uint8_t[msg_serialize_size];
+    Serializer::serialize<MsgT>(data, buffer, msg_serialize_size);
     std::string topic_str = topic_ + "_" + event;
     if (shm_ == nullptr) {
-      shm_ = std::make_shared<ShmBase>(topic_str, data_str.size());
+      shm_ = std::make_shared<ShmBase>(topic_str, msg_serialize_size);
       shm_->Create();
     }
-    std::cout << data_str << std::endl;
+    // std::cout << data_str << std::endl;
     // shm_->Open();
-    shm_->Write(data_str.c_str(), data_str.size());
+    shm_->Write(buffer, msg_serialize_size);
+    delete[] buffer;
     return 0;
   }
   int asyncService(const std::string &topic, const std::string &event,
                    const MsgT &data, int depth = 10);
   static int publish(const std::string &topic, const std::string &event,
                      const MsgT &data, int depth = 10) {
-    std::string data_str = data.serialize();
+    size_t msg_serialize_size;
+    msg_serialize_size = Serializer::getSerializedSize<MsgT>(data);
+    uint8_t *buffer = new uint8_t[msg_serialize_size];
+    Serializer::serialize<MsgT>(data, buffer, msg_serialize_size);
     std::string topic_str = topic + "_" + event;
-    ShmBase shm(topic_str, depth);
-    shm.Create();
-    shm.Write(data_str.c_str(), data_str.size());
+    std::shared_ptr<ShmBase> shm =
+        std::make_shared<ShmBase>(topic_str, msg_serialize_size);
+    shm->Create();
+    shm->Write(buffer, msg_serialize_size);
+    delete[] buffer;
     return 0;
   }
   static int32_t postEvent(const std::string &topic, const std::string &event,

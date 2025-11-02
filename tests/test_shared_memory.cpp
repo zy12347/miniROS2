@@ -9,7 +9,9 @@
 
 int main() {
   Node node("test_node2");
+  std::cout << "1" << std::endl;
   auto pub = node.createPublisher<JsonValue>("test");
+  std::cout << "2" << std::endl;
   JsonValue json;
   json["name"] = "John";
   json["age"] = 30;
@@ -17,8 +19,9 @@ int main() {
   json["is_student"] = true;
   json["height"] = 1.8;
   json["weight"] = 70;
-  node.printRegistry();
-  pub->publish("test5", json);
+  // node.printRegistry();
+  std::cout << "test" << std::endl;
+  pub->publish("test2", json);
   node.spin();
   return 0;
 }

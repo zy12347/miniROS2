@@ -14,7 +14,7 @@ public:
     // POSIX标准要求共享内存名称以'/'开头且不包含其他'/'且共享内存要小于10MB
     if (name_.empty() || name_[0] != '/' || size_ == 0 ||
         size_ > 10 * 1024 * 1024) {
-      std::cout << name_ << std::endl;
+      std::cout << name_ << " " << size_ << std::endl;
       throw std::invalid_argument("Invalid name or size for SharedMemory");
     }
     //初始化元信息不执行系统调用,延迟资源获取

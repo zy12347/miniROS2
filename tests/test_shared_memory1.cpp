@@ -9,7 +9,7 @@
 int main() {
   Node Node("test_node2");
   auto sub = Node.createSubscriber<JsonValue>(
-      "test", "test5", [](const JsonValue &data) {
+      "test", "test2", [](const JsonValue &data) {
         std::cout << "Received: " << data.serialize() << std::endl;
       }); // topic event function
   Node.printRegistry();

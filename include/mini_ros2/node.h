@@ -1,3 +1,5 @@
+#pragma once
+#include "mini_ros2/communication/event_manager.h"
 #include "mini_ros2/communication/shm_manager.h"
 #include "mini_ros2/pubsub/publisher.h"
 #include "mini_ros2/pubsub/subscriber.h"
@@ -68,6 +70,9 @@ public:
     subscriptions_.push_back(sub); // 自动转换为std::shared_ptr<SubscriberBase>
     sub_topics_.push_back(topic_name);
     shm_manager_->addSubTopic(node_id_, topic_name);
+    EventSource ev;
+    sub->getEventSrc(ev);
+    event_manager_.addEventSource(ev);
     return sub;
   }
 
@@ -96,6 +101,7 @@ private:
   const int HEARTBEAT_INTERVAL = 1;             // 秒
   const int HEARTBEAT_TIMEOUT = 3;              // 秒
 
+  EventManager event_manager_; // 事件管理器
   std::thread spin_thread_;
   std::atomic<bool> spinning_ = false;
   std::condition_variable spin_cv_; // spin循环条件变量 事件处理循环

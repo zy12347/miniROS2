@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <sys/eventfd.h>
 
 class PublisherBase {
 public:
@@ -44,6 +45,15 @@ public:
     // std::cout << data_str << std::endl;
     // shm_->Open();
     shm_->Write(buffer, msg_serialize_size);
+    // std::string event_fd_path = "/tmp" + shm_->getShmName() + "_eventfd";
+    // int sub_efd = open(event_fd_path.c_str(), O_WRONLY);
+    // if (sub_efd == -1) {
+    //   perror("open sub efd failed");
+    //   return -1;
+    // }
+    // uint64_t notify = 1;
+    // write(sub_efd, &notify, sizeof(notify));
+    // close(sub_efd);
     delete[] buffer;
     return 0;
   }

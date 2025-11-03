@@ -50,6 +50,7 @@ public:
   bool Close();  //关闭共享内存
   bool Unlink(); //删除共享内存
   size_t Size() const { return size_; }
+  bool IsOwner() const { return is_owner_; } //检查是否是共享内存的创建者
 
   // 引用计数相关
   bool IncrementRefCount(); // 增加引用计数

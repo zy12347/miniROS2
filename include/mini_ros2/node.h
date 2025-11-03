@@ -34,12 +34,15 @@ public:
 
     // 创建具体Publisher实例（假设Publisher构造函数需要话题名和QoS深度）
     auto pub = std::make_shared<Publisher<MsgT>>(full_topic, qos_depth);
+    
+    // 设置 ShmManager 引用和原始 topic 名称，用于触发事件
+    pub->setShmManager(shm_manager_.get());
+    pub->setTopicNameForEvent(full_topic); // 传递原始 topic 名称（不含前缀）
 
     // 线程安全地加入容器（基类指针转换）
     std::lock_guard<std::mutex> lock(node_mutex_);
     publishers_.push_back(pub); // 自动转换为std::shared_ptr<PublisherBase>
-    pub_topics_.push_back(topic_name);
-    shm_manager_->addPubTopic(node_id_, topic_name);
+    pub_topics_.push_back(full_topic);
     return pub;
   }
 
@@ -69,7 +72,17 @@ public:
     std::lock_guard<std::mutex> lock(node_mutex_);
     subscriptions_.push_back(sub); // 自动转换为std::shared_ptr<SubscriberBase>
     sub_topics_.push_back(topic_name);
-    shm_manager_->addSubTopic(node_id_, topic_name);
+    shm_manager_->addSubTopic(topic_name, event_name);
+    
+    // 注册 topic+event 组合，获取 event_id（使用原始 topic 名称，不含前缀）
+    int event_id = shm_manager_->registerTopicEvent(topic_name, event_name);
+    // 存储订阅者索引到 event_id 的映射（用于在 spinLoop 中映射）
+    if (event_id >= 0) {
+      subscription_event_ids_.push_back(event_id);
+    } else {
+      subscription_event_ids_.push_back(-1); // 标记失败
+    }
+    
     // EventSource ev;
     // sub->getEventSrc(ev);
     // event_manager_.addEventSource(ev);
@@ -95,6 +108,7 @@ private:
 
   std::vector<std::string> pub_topics_; //发布的话题列表
   std::vector<std::string> sub_topics_; //订阅的话题列表
+  std::vector<int> subscription_event_ids_; // 订阅者索引到 event_id 的映射
 
   std::thread heartbeat_thread_;
   std::atomic<bool> heartbeat_running_ = false; // 心跳机制，定时更新节点状态

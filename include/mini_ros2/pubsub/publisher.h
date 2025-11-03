@@ -14,16 +14,18 @@ public:
 };
 
 class Node;
+class ShmManager;
 #define POST_EVENT(...) Publisher::Publish(__VA_ARGS__)
 
 template <typename MsgT> class Publisher : public PublisherBase {
   friend class Node;
 
 public:
-  Publisher(std::string &topic) : topic_(topic){};
+
+  Publisher(std::string &topic) : topic_(topic), shm_manager_(nullptr){};
 
   Publisher(std::string &topic, int host_id)
-      : topic_(topic), host_id_(host_id){};
+      : topic_(topic), host_id_(host_id), shm_manager_(nullptr){};
   // Publisher(const Publisher &) = delete;
   // Publisher &operator=(const Publisher &) = delete;
   // Publisher(Publisher &&) = delete;
@@ -41,21 +43,32 @@ public:
     if (shm_ == nullptr) {
       shm_ = std::make_shared<ShmBase>(topic_str, msg_serialize_size);
       shm_->Create();
+      shm_->Open();
     }
     // std::cout << data_str << std::endl;
     // shm_->Open();
     shm_->Write(buffer, msg_serialize_size);
-    // std::string event_fd_path = "/tmp" + shm_->getShmName() + "_eventfd";
-    // int sub_efd = open(event_fd_path.c_str(), O_WRONLY);
-    // if (sub_efd == -1) {
-    //   perror("open sub efd failed");
-    //   return -1;
-    // }
-    // uint64_t notify = 1;
-    // write(sub_efd, &notify, sizeof(notify));
-    // close(sub_efd);
+    if(!shm_manager_->isTopicExist(topic_, event)) {
+      std::cout << "addPubTopic: " << topic_ << " " << event << std::endl;
+      shm_manager_->addPubTopic(topic_, event);
+    }
+    // 触发事件：通知 ShmManager 更新 event_flag_ 并唤醒等待的订阅者
+    if (shm_manager_ && !topic_name_for_event_.empty()) {
+      shm_manager_->triggerEvent(topic_name_for_event_, event);
+    }
+    
     delete[] buffer;
     return 0;
+  }
+  
+  // 设置 ShmManager 引用（由 Node 调用）
+  void setShmManager(ShmManager* shm_manager) {
+    shm_manager_ = shm_manager;
+  }
+  
+  // 设置用于事件触发的 topic 名称（去除前缀的原始名称）
+  void setTopicNameForEvent(const std::string &topic_name) {
+    topic_name_for_event_ = topic_name;
   }
   int asyncService(const std::string &topic, const std::string &event,
                    const MsgT &data, int depth = 10);
@@ -69,6 +82,7 @@ public:
     std::shared_ptr<ShmBase> shm =
         std::make_shared<ShmBase>(topic_str, msg_serialize_size);
     shm->Create();
+    shm->Open();
     shm->Write(buffer, msg_serialize_size);
     delete[] buffer;
     return 0;
@@ -88,6 +102,9 @@ private:
   std::string topic_;
 
   std::shared_ptr<ShmBase> shm_;
+  
+  ShmManager* shm_manager_; // ShmManager 引用，用于触发事件
+  std::string topic_name_for_event_; // 用于事件触发的 topic 名称（去除前缀）
 
   long long time_stamp_ = 0;
 };

@@ -7,28 +7,28 @@
 #include <string>
 #include <vector>
 
-#define MAX_NODE_COUNT 256
-#define MAX_TOPICS_PER_NODE 64
+#define MAX_NODE_COUNT 16
+#define MAX_TOPICS_PER_NODE 32
 #define MAX_NODE_NAME_LEN 256
 #define MAX_TOPIC_NAME_LEN 256
-#define MAX_SHM_MANGER_SIZE 1024 * 1024
-#define SHM_MANAGER_HEAD_SIZE 1024
-#define TOPIC_INFO_SIZE 23 * 1024
-#define NODE_INFO_SIZE 1000 * 1024
+#define MAX_SHM_MANGER_SIZE 4 * 1024 * 1024
+#define TOPIC_INFO_SIZE 1024 * 1024
+#define NODE_INFO_SIZE 3 * 1024 * 1024
 #define SHM_MANAGER_NAME "/miniros2_dds_shm_manager"
 
 struct TopicInfo {
   char name_[MAX_TOPIC_NAME_LEN];
-  uint64_t event_id_;
-  TopicInfo() {
-    name_[0] = "\0";
-    event_id_ = -1;
-  }
+  int event_id_;
+  // TopicInfo() {
+  //   name_[0] = "\0";
+  //   event_id_ = -1;
+  // }
 };
 
 struct TopicsInfo {
-  int topic_count;
-  TopicInfo topics[0];
+  int topics_count;
+  int event_flag_; // 0为默认registry变动,第i位表示第i个事件变动
+  TopicInfo topics[MAX_TOPICS_PER_NODE];
 };
 
 struct NodeInfo {
@@ -42,27 +42,27 @@ struct NodeInfo {
   // std::string node_namespace;
   char pub_topics[MAX_TOPICS_PER_NODE][MAX_TOPIC_NAME_LEN];
   char sub_topics[MAX_TOPICS_PER_NODE][MAX_TOPIC_NAME_LEN];
-  NodeInfo() {
-    node_id = -1;
-    pid = -1;
-    pub_topic_count = -1;
-    sub_topic_count = -1;
-    node_name[0] = '\0'; // 确保字符串以null结尾
-    is_alive = false;
-    last_heartbeat = -1;
-    // 初始化所有topic数组元素为空字符串
-    for (int i = 0; i < MAX_TOPICS_PER_NODE; i++) {
-      pub_topics[i][0] = '\0';
-      sub_topics[i][0] = '\0';
-    }
-  }
+  // NodeInfo() {
+  //   node_id = -1;
+  //   pid = -1;
+  //   pub_topic_count = -1;
+  //   sub_topic_count = -1;
+  //   node_name[0] = '\0'; // 确保字符串以null结尾
+  //   is_alive = false;
+  //   last_heartbeat = -1;
+  //   // 初始化所有topic数组元素为空字符串
+  //   for (int i = 0; i < MAX_TOPICS_PER_NODE; i++) {
+  //     pub_topics[i][0] = '\0';
+  //     sub_topics[i][0] = '\0';
+  //   }
+  // }
 };
 
 struct NodesInfo {
   int nodes_count;
   int alive_node_count;
   int ref_count;
-  NodeInfo nodes[0];
+  NodeInfo nodes[MAX_NODE_COUNT];
 };
 
 class ShmManager {
@@ -97,15 +97,24 @@ public:
   //   ShmManagerHead *getShmManagerHeaderPtr();
   void readNodesInfo();
   void readTopicsInfo();
-  void readShmManagerHeaderInfo();
+  // void readShmManagerHeaderInfo();
+  void writeNodesInfo();
+  void writeTopicsInfo();
+  void shmManagerBroadcast() { shm_->shmBaseBroadcast(); };
+
+  void shmManagerWait() { shm_->shmBaseWait(); };
+
+  void shmManagerLock() { shm_->shmBaseLock(); };
+
+  void shmManagerUnlock() { shm_->shmBaseUnlock(); };
+
+  void shmManagerSignal() { shm_->shmBaseSignal(); };
 
 private:
   NodesInfo nodes_;
   TopicsInfo topics_;
   std::shared_ptr<ShmBase> shm_;
   int shm_fd_ = -1;
-  //   pthread_mutex_t *mutex_ptr_ = nullptr;
-  //   pthread_cond_t *cond_ptr_ = nullptr;
   //   uint64_t *time_ptr_ = nullptr;
   //   char *data_ptr_;
 };

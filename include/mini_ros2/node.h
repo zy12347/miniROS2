@@ -70,9 +70,9 @@ public:
     subscriptions_.push_back(sub); // 自动转换为std::shared_ptr<SubscriberBase>
     sub_topics_.push_back(topic_name);
     shm_manager_->addSubTopic(node_id_, topic_name);
-    EventSource ev;
-    sub->getEventSrc(ev);
-    event_manager_.addEventSource(ev);
+    // EventSource ev;
+    // sub->getEventSrc(ev);
+    // event_manager_.addEventSource(ev);
     return sub;
   }
 

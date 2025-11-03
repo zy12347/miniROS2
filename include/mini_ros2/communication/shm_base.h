@@ -58,7 +58,15 @@ public:
   }
   void initMutexAndCond();
 
-  void createMutexAndCondForAll();
+  void shmBaseLock() { pthread_mutex_lock(mutex_ptr_); }
+
+  void shmBaseUnlock() { pthread_mutex_unlock(mutex_ptr_); }
+
+  void shmBaseWait() { pthread_cond_wait(cond_ptr_, mutex_ptr_); }
+
+  void shmBaseSignal() { pthread_cond_signal(cond_ptr_); }
+
+  void shmBaseBroadcast() { pthread_cond_broadcast(cond_ptr_); }
 
 private:
   void CachePointers(ShmHead *head);

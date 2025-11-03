@@ -57,7 +57,7 @@ void Node::registerNode() {
   NodeInfo new_node;
   // 填充节点信息
   new_node.node_id = node_id_;
-  new_node.node_name = node_name_;
+  std::strcpy(new_node.node_name, node_name_.c_str());
   new_node.pid = getpid();
   new_node.last_heartbeat = time(nullptr);
   new_node.is_alive = true;
@@ -66,14 +66,14 @@ void Node::registerNode() {
   new_node.pub_topic_count =
       std::min((int)pub_topics_.size(), MAX_TOPICS_PER_NODE);
   for (int i = 0; i < new_node.pub_topic_count; i++) {
-    new_node.pub_topics[i] = pub_topics_[i];
+    std::strcpy(new_node.pub_topics[i], pub_topics_[i].c_str());
   }
 
   // 填充订阅话题
   new_node.sub_topic_count =
       std::min((int)sub_topics_.size(), MAX_TOPICS_PER_NODE);
   for (int i = 0; i < new_node.sub_topic_count; i++) {
-    new_node.sub_topics[i] = sub_topics_[i];
+    std::strcpy(new_node.sub_topics[i], sub_topics_[i].c_str());
   }
 
   // 更新活跃节点计数

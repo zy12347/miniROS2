@@ -64,61 +64,6 @@ void ShmBase::initMutexAndCond() {
   CachePointers(head);
 }
 
-void ShmBase::createMutexAndCondForAll() {
-  ShmHead *head = static_cast<ShmHead *>(shm_.Data());
-  ShmHead *head_for_all = static_cast<ShmHead *>(head + 1);
-  if (!head_for_all) {
-    throw std::runtime_error("获取共享内存头部指针失败");
-  }
-
-  // 3. 初始化互斥锁（进程间共享）
-  pthread_mutexattr_t mutex_attr;
-  int ret = pthread_mutexattr_init(&mutex_attr);
-  if (ret != 0) {
-    throw std::runtime_error("初始化互斥锁属性失败：" +
-                             std::string(strerror(ret)));
-  }
-  // 设置互斥锁可跨进程共享
-  ret = pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
-  if (ret != 0) {
-    pthread_mutexattr_destroy(&mutex_attr);
-    throw std::runtime_error("设置互斥锁进程共享属性失败：" +
-                             std::string(strerror(ret)));
-  }
-  // 初始化互斥锁
-  ret = pthread_mutex_init(&head->mutex_, &mutex_attr);
-  if (ret != 0) {
-    pthread_mutexattr_destroy(&mutex_attr);
-    throw std::runtime_error("初始化互斥锁失败：" + std::string(strerror(ret)));
-  }
-  pthread_mutexattr_destroy(&mutex_attr);
-
-  // 4. 初始化条件变量（进程间共享）
-  pthread_condattr_t cond_attr;
-  ret = pthread_condattr_init(&cond_attr);
-  if (ret != 0) {
-    throw std::runtime_error("初始化条件变量属性失败：" +
-                             std::string(strerror(ret)));
-  }
-  ret = pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
-  if (ret != 0) {
-    pthread_condattr_destroy(&cond_attr);
-    throw std::runtime_error("设置条件变量进程共享属性失败：" +
-                             std::string(strerror(ret)));
-  }
-  ret = pthread_cond_init(&head_for_all->cond_, &cond_attr);
-  if (ret != 0) {
-    pthread_condattr_destroy(&cond_attr);
-    throw std::runtime_error("初始化条件变量失败：" +
-                             std::string(strerror(ret)));
-  }
-  pthread_condattr_destroy(&cond_attr);
-
-  head_for_all->time_ = 0;
-
-  // CachePointers(head);/
-}
-
 void ShmBase::CachePointers(ShmHead *head) {
   mutex_ptr_ = &head->mutex_;
   cond_ptr_ = &head->cond_;

@@ -19,7 +19,8 @@ int main() {
   json["weight"] = 70;
   // node.printRegistry();
   while(true){
-    pub->publish("test14", json);
+    pub->publish("test20", json);
+    node.printRegistry();
     sleep(1);
   }
   node.spin();

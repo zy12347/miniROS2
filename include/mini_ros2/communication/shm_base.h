@@ -58,6 +58,9 @@ public:
     // }
   }
   void Write(const void *data, size_t size, size_t offset = 0);
+  
+  // 内部写入方法：假设调用者已经持有锁（用于避免双重锁）
+  void WriteUnlocked(const void *data, size_t size, size_t offset = 0);
 
   void Read(void *buffer, size_t size, size_t offset = 0);
 

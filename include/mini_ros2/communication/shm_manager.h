@@ -4,6 +4,7 @@
 #include "mini_ros2/message/json.h"
 #include <atomic>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -14,7 +15,7 @@
 #define MAX_SHM_MANGER_SIZE 4 * 1024 * 1024
 #define TOPIC_INFO_SIZE 1024 * 1024
 #define NODE_INFO_SIZE 3 * 1024 * 1024
-#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager14"
+#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager20"
 
 struct TopicInfo {
   char name_[MAX_TOPIC_NAME_LEN];
@@ -71,8 +72,6 @@ public:
   ShmManager();
 
   //   ~ShmManager();
-
-  void initializeRegistry();
   void addSubTopic(const std::string &topic_name, const std::string &event_name);
   void addPubTopic(const std::string &topic_name, const std::string &event_name);
   void removeSubTopic(const std::string &topic_name, const std::string &event_name);
@@ -84,7 +83,6 @@ public:
   void removeNode();            //删除节点
   void addNode(const NodeInfo &node_info); //新增节点
   void updateNodeInfo(const NodeInfo &node_info); //更新指定id节点信息非新增
-  void writeRegistryToShm_(); //写入注册表到共享内存
   void getNodeInfo(NodeInfo &node_info); //获取指定id节点信息
   int getNextNodeId(); //获取下一个空闲节点id
   int getAliveNodeCount();
@@ -94,22 +92,33 @@ public:
   //   NodesInfo *getNodesInfoPtr();
   //   TopicsInfo *getTopicsInforPtr();
   //   ShmManagerHead *getShmManagerHeaderPtr();
-  void readNodesInfo();
-  void readTopicsInfo();
   // void readShmManagerHeaderInfo();
-  void writeNodesInfo();
-  void writeTopicsInfo();
-  void shmManagerBroadcast() { shm_->shmBaseBroadcast(); };
 
-  void shmManagerWait() { shm_->shmBaseWait(); };
+  void shmManagerWait() { 
+    std::lock_guard<std::mutex> lock(registry_mutex_);
+    shm_->shmBaseWait(); 
+};
 
-  void shmManagerLock() { shm_->shmBaseLock(); };
+  // 注意：shmManagerLock/Unlock 用于条件变量等待（使用 ShmBase 的锁）
+  void shmManagerLock() { 
+    std::lock_guard<std::mutex> lock(registry_mutex_);
+    shm_->shmBaseLock(); 
+};
 
-  void shmManagerUnlock() { shm_->shmBaseUnlock(); };
+  void shmManagerUnlock() { 
+    std::lock_guard<std::mutex> lock(registry_mutex_);
+    shm_->shmBaseUnlock(); 
+};
 
-  void shmManagerSignal() { shm_->shmBaseSignal(); };
+  void shmManagerSignal() { 
+    std::lock_guard<std::mutex> lock(registry_mutex_);
+    shm_->shmBaseSignal(); 
+};
 
-  int getTriggerEvent() { return topics_.event_flag_; };
+  int getTriggerEvent() { 
+    std::lock_guard<std::mutex> lock(registry_mutex_);
+    return topics_.event_flag_; 
+  };
 
   // 事件触发相关方法
   // 注册 topic+event 组合，返回分配的 event_id（位索引）
@@ -120,9 +129,6 @@ public:
   
   // 触发事件：设置对应的位并通知条件变量
   void triggerEvent(const std::string &topic_name, const std::string &event_name);
-  
-  // 触发事件（通过 event_id）
-  void triggerEventById(int event_id);
   
   // 清除事件标志位
   void clearTriggerEvent(int event_id);
@@ -137,6 +143,21 @@ public:
   void setNodeId(int node_id) { node_id_ = node_id; };
 
 private:
+void initializeRegistry_();
+  // 内部方法：查找或创建 topic+event 映射
+  int findOrCreateTopicEvent_(const std::string &topic_name, const std::string &event_name);
+
+  void writeRegistryToShm_(); //写入注册表到共享内存
+  void writeNodesInfo_();
+  void writeTopicsInfo_();
+
+  void readNodesInfo_();
+  void readTopicsInfo_();
+  int getTopicEventId_(const std::string &topic_name, const std::string &event_name);
+
+  void shmManagerBroadcast_() { shm_->shmBaseBroadcast(); };
+  // 触发事件（通过 event_id）
+  void triggerEventById_(int event_id);
   int node_id_ = -1;
   NodesInfo nodes_;
   TopicsInfo topics_;
@@ -145,6 +166,7 @@ private:
   //   uint64_t *time_ptr_ = nullptr;
   //   char *data_ptr_;
   
-  // 内部方法：查找或创建 topic+event 映射
-  int findOrCreateTopicEvent_(const std::string &topic_name, const std::string &event_name);
+  // 进程内锁：保护 nodes_ 和 topics_ 的内存访问（非共享内存）
+  // 所有对共享内存的读写操作由 ShmBase 的锁保护
+  std::mutex registry_mutex_;
 };

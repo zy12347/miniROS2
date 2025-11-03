@@ -8,7 +8,7 @@ ShmManager::ShmManager() {
     // 已存在，直接打开
     shm_->Open();
     std::cout << "shm_manager open" << std::endl;
-    initializeRegistry(); //只有事先已存在共享内存信息才尝试拷贝注册表信息
+    initializeRegistry_(); //只有事先已存在共享内存信息才尝试拷贝注册表信息
   } else {
     // 不存在，创建新的
     std::cout << "shm_manager create" << std::endl;
@@ -16,7 +16,7 @@ ShmManager::ShmManager() {
     shm_->Open();
   }
 };
-void ShmManager::readNodesInfo() {
+void ShmManager::readNodesInfo_() {
   char node_data[NODE_INFO_SIZE];
   memset(node_data, 0,
          NODE_INFO_SIZE); // 初始化为0
@@ -69,7 +69,7 @@ void ShmManager::readNodesInfo() {
     nodes_.alive_node_count = 0;
   }
 }
-void ShmManager::readTopicsInfo() {
+void ShmManager::readTopicsInfo_() {
   char topic_data[TOPIC_INFO_SIZE];
   memset(topic_data, 0,
          TOPIC_INFO_SIZE); // 初始化为0
@@ -112,24 +112,27 @@ void ShmManager::readTopicsInfo() {
     topics_.topics_count = 0;
   }
 }
-void ShmManager::initializeRegistry() {
+void ShmManager::initializeRegistry_() {
   //初始化注册表直接从共享内存读取数据
   std::cout << "initializeRegistry" << std::endl;
-  readTopicsInfo();
-  readNodesInfo();
+  readTopicsInfo_();
+  readNodesInfo_();
 }
 void ShmManager::updateNodeHeartbeat() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   nodes_.nodes[node_id_].last_heartbeat = time(nullptr);
   writeRegistryToShm_();
   // TBD心跳更新会频繁写入共享内存，后面优化为修改而非覆写
 };
 
 bool ShmManager::isNodeAlive() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   bool is_alive = nodes_.nodes[node_id_].is_alive;
   return is_alive;
 };
 
 void ShmManager::addNode(const NodeInfo &node_info) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   nodes_.nodes[node_id_] = node_info;
   nodes_.nodes_count++;
   nodes_.alive_node_count++;
@@ -137,10 +140,12 @@ void ShmManager::addNode(const NodeInfo &node_info) {
 }
 
 void ShmManager::updateNodeInfo(const NodeInfo &node_info) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   nodes_.nodes[node_id_] = node_info;
   writeRegistryToShm_();
 };
 void ShmManager::removeNode() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   //   nodes.erase(nodes.begin() + node_id);
   nodes_.nodes[node_id_].is_alive = false;
   nodes_.alive_node_count--;
@@ -148,10 +153,12 @@ void ShmManager::removeNode() {
 }
 
 void ShmManager::getNodeInfo(NodeInfo &node_info) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   node_info = nodes_.nodes[node_id_];
 }
 // TBD 这里的MAX_NODE_COUNT需要从配置文件中读取
 int ShmManager::getNextNodeId() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   for (int i = 0; i < MAX_NODE_COUNT; i++) {
     if (!nodes_.nodes[i].is_alive) {
       return i;
@@ -161,23 +168,26 @@ int ShmManager::getNextNodeId() {
 }
 
 int ShmManager::getAliveNodeCount() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   int count = nodes_.alive_node_count;
   return count;
 }
 int ShmManager::getNodeCount() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   int count = nodes_.nodes_count;
   return count;
 }
 
 // void ShmManager::writeShmHead() {}
-// 内部写入方法：假设调用者已经持有锁（或不持有锁，根据情况）
-void ShmManager::writeNodesInfo() {
+// 写入方法：使用进程内锁保护数据访问，使用 ShmBase 锁保护共享内存写入
+void ShmManager::writeNodesInfo_() {
+  // 1. 加进程内锁保护 nodes_ 的内存访问
+  // std::lock_guard<std::mutex> lock(registry_mutex_);
   JsonValue json;
   json["node_count"] = nodes_.nodes_count;
   json["ref_count"] = nodes_.ref_count;
   json["alive_node_count"] = nodes_.alive_node_count;
   json["nodes"] = JsonArray(nodes_.nodes_count);
-  // TBD 先用覆写的方法后面用替换的方法
   for (int i = 0; i < nodes_.nodes_count; i++) {
     json["nodes"][i]["node_id"] = nodes_.nodes[i].node_id;
     json["nodes"][i]["pid"] = nodes_.nodes[i].pid;
@@ -197,77 +207,76 @@ void ShmManager::writeNodesInfo() {
     }
     json["nodes"][i]["last_heartbeat"] = nodes_.nodes[i].last_heartbeat;
   }
-  shm_->Write(json.serialize().c_str(), json.serialize().size(),
-              TOPIC_INFO_SIZE);
+  std::string json_str = json.serialize();
+  // 2. 锁在 lock_guard 析构时自动释放
+  // 3. 调用 Write() 写入共享内存（Write() 内部会用自己的锁保护）
+  shm_->Write(json_str.c_str(), json_str.size(), TOPIC_INFO_SIZE);
 }
-// 内部写入方法：假设调用者已经持有锁（或不持有锁，根据情况）
-void ShmManager::writeTopicsInfo() {
+
+// 写入方法：使用进程内锁保护数据访问，使用 ShmBase 锁保护共享内存写入
+void ShmManager::writeTopicsInfo_() {
+  // 1. 加进程内锁保护 topics_ 的内存访问
+  // std::lock_guard<std::mutex> lock(registry_mutex_);
   JsonValue json;
   json["topic_count"] = topics_.topics_count;
   json["event_flag_"] = topics_.event_flag_;
   json["topics"] = JsonArray(topics_.topics_count);
-  // TBD 先用覆写的方法后面用替换的方法
   for (int i = 0; i < topics_.topics_count; i++) {
     json["topics"][i]["topic_id"] = topics_.topics[i].event_id_;
     json["topics"][i]["name"] = std::string(topics_.topics[i].name_);
   }
-  shm_->Write(json.serialize().c_str(), json.serialize().size());
+  std::string json_str = json.serialize();
+  // 2. 锁在 lock_guard 析构时自动释放
+  // 3. 调用 Write() 写入共享内存（Write() 内部会用自己的锁保护）
+  shm_->Write(json_str.c_str(), json_str.size());
 }
 void ShmManager::writeRegistryToShm_() {
   // writeShmHead();
-  shmManagerLock(); // 添加锁保护
-  writeTopicsInfo();
-  writeNodesInfo();
-  shmManagerUnlock();
+  // writeTopicsInfo() 和 writeNodesInfo() 内部已经有锁保护
+  writeTopicsInfo_();
+  writeNodesInfo_();
 }
 
 void ShmManager::addSubTopic(const std::string &topic_name, const std::string &event_name) {
-  shmManagerLock(); // 添加锁保护
+  // 使用进程内锁保护 nodes_ 和 topics_ 的访问
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   if (nodes_.nodes[node_id_].sub_topic_count < MAX_TOPICS_PER_NODE) {
     std::strcpy(
         nodes_.nodes[node_id_].sub_topics[nodes_.nodes[node_id_].sub_topic_count],
         topic_name.c_str());
     nodes_.nodes[node_id_].sub_topic_count++;
-    writeNodesInfo(); // 内部已持有锁，直接调用
   }
-  if(topics_.topics_count < MAX_TOPICS_PER_NODE) {
-    std::strcpy(topics_.topics[topics_.topics_count].name_, event_name.c_str());
-    int event_id = findOrCreateTopicEvent_(topic_name, event_name);
-    if(event_id >= 0) {
-      topics_.topics[event_id].event_id_ = event_id;
-      topics_.topics_count++;
-      writeTopicsInfo(); // 内部已持有锁，直接调用
-    } else {
-      std::cerr << "Failed to create topic event" << std::endl;
-    }
-    // 移除重复的 writeTopicsInfo() 调用
+  // 查找或创建 topic event，findOrCreateTopicEvent_ 内部会处理 topics_ 的更新
+  int event_id = findOrCreateTopicEvent_(topic_name, event_name);
+  if(event_id < 0) {
+    std::cerr << "Failed to create topic event" << std::endl;
   }
-  shmManagerUnlock();
+  writeRegistryToShm_();
+  // 锁释放后，调用 writeTopicsInfo() 和 writeNodesInfo() 写入共享内存
+  // 它们内部会重新加锁读取数据并写入
 }
 
 void ShmManager::addPubTopic(const std::string &topic_name, const std::string &event_name) {
-  shmManagerLock(); // 添加锁保护
+  // 使用进程内锁保护 nodes_ 和 topics_ 的访问
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   if (nodes_.nodes[node_id_].pub_topic_count < MAX_TOPICS_PER_NODE) {
     std::strcpy(
         nodes_.nodes[node_id_].pub_topics[nodes_.nodes[node_id_].pub_topic_count],
         topic_name.c_str());
     nodes_.nodes[node_id_].pub_topic_count++;
-    writeNodesInfo(); // 内部已持有锁，直接调用
   }
-  if(topics_.topics_count < MAX_TOPICS_PER_NODE) {
-    int event_id = findOrCreateTopicEvent_(topic_name, event_name);
-    if(event_id >= 0) {
-      topics_.topics[event_id].event_id_ = event_id;
-      topics_.topics_count++;
-      writeTopicsInfo(); // 内部已持有锁，直接调用
-    } else {
-      std::cerr << "Failed to create topic event" << std::endl;
-    }
+  // 查找或创建 topic event，findOrCreateTopicEvent_ 内部会处理 topics_ 的更新
+  int event_id = findOrCreateTopicEvent_(topic_name, event_name);
+  if(event_id < 0) {
+    std::cerr << "Failed to create topic event" << std::endl;
   }
-  shmManagerUnlock();
+  writeRegistryToShm_();
+  // 锁释放后，调用 writeTopicsInfo() 和 writeNodesInfo() 写入共享内存
+  // 它们内部会重新加锁读取数据并写入
 }
 
 void ShmManager::removeSubTopic(const std::string &topic_name, const std::string &event_name) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   for (int i = 0; i < nodes_.nodes[node_id_].sub_topic_count; i++) {
     if (nodes_.nodes[node_id_].sub_topics[i] == topic_name) {
       // 移除topic，将后面的元素前移
@@ -283,6 +292,7 @@ void ShmManager::removeSubTopic(const std::string &topic_name, const std::string
 }
 
 void ShmManager::removePubTopic(const std::string &topic_name, const std::string &event_name) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   for (int i = 0; i < nodes_.nodes[node_id_].pub_topic_count; i++) {
     if (nodes_.nodes[node_id_].pub_topics[i] == topic_name) {
       // 移除topic，将后面的元素前移
@@ -298,10 +308,12 @@ void ShmManager::removePubTopic(const std::string &topic_name, const std::string
 }
 
 void ShmManager::updateNodeAlive() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   nodes_.nodes[node_id_].is_alive = true;
   writeRegistryToShm_();
 }
 void ShmManager::updateNodeName(const std::string &node_name) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   std::strcpy(nodes_.nodes[node_id_].node_name, node_name.c_str());
   writeRegistryToShm_();
 }
@@ -312,6 +324,7 @@ void ShmManager::printRegistry() {
   // shm_->Read(data, MAX_SHM_MANGER_SIZE);
   // std::string jsonStr(data);
   // std::cout << jsonStr << std::endl;
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   char topic_data[TOPIC_INFO_SIZE];
   memset(topic_data, 0, TOPIC_INFO_SIZE);
   shm_->Read(topic_data, TOPIC_INFO_SIZE);
@@ -355,80 +368,73 @@ int ShmManager::findOrCreateTopicEvent_(const std::string &topic_name, const std
 
 // 注册 topic+event 组合，返回分配的 event_id（位索引）
 int ShmManager::registerTopicEvent(const std::string &topic_name, const std::string &event_name) {
-  shmManagerLock();
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   int event_id = findOrCreateTopicEvent_(topic_name, event_name);
   if (event_id >= 0) {
-    writeTopicsInfo(); // 更新到共享内存
+    writeTopicsInfo_(); // 更新到共享内存
   }
-  shmManagerUnlock();
   return event_id;
 }
 
 // 查找 topic+event 对应的 event_id，如果不存在返回 -1
-int ShmManager::getTopicEventId(const std::string &topic_name, const std::string &event_name) {
+int ShmManager::getTopicEventId_(const std::string &topic_name, const std::string &event_name) {
+  // std::lock_guard<std::mutex> lock(registry_mutex_);
   std::string full_name = topic_name + "_" + event_name;
-  
-  shmManagerLock();
   for (int i = 0; i < topics_.topics_count; i++) {
     if (std::string(topics_.topics[i].name_) == full_name) {
       int event_id = topics_.topics[i].event_id_;
-      shmManagerUnlock();
       return event_id;
     }
   }
-  shmManagerUnlock();
   return -1;
 }
 
 // 触发事件：设置对应的位并通知条件变量
 void ShmManager::triggerEvent(const std::string &topic_name, const std::string &event_name) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   std::cout << "triggerEvent: " << topic_name << " " << event_name << std::endl;
-  int event_id = getTopicEventId(topic_name, event_name);
+  int event_id = getTopicEventId_(topic_name, event_name);
   if (event_id >= 0) {
     std::cout << "triggerEventById: " << event_id << std::endl;
-    triggerEventById(event_id);
+    triggerEventById_(event_id);
   }
 }
 
 // 触发事件（通过 event_id）
-void ShmManager::triggerEventById(int event_id) {
+void ShmManager::triggerEventById_(int event_id) {
   if (event_id < 0 || event_id >= MAX_TOPICS_PER_NODE) {
     return;
   }
   
-  shmManagerLock();
   // 设置对应的位
   topics_.event_flag_ |= (1 << event_id);
-  writeTopicsInfo(); // 更新到共享内存
+  writeTopicsInfo_(); // 更新到共享内存
   // 在持有锁的情况下通知（避免丢失通知）
-  shmManagerBroadcast(); // 通知所有等待的线程
-  shmManagerUnlock();
+  shmManagerBroadcast_(); // 通知所有等待的线程
 }
 
 // 清除事件标志位
 void ShmManager::clearTriggerEvent(int event_id) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   if (event_id < 0 || event_id >= MAX_TOPICS_PER_NODE) {
     return;
   }
-  
-  shmManagerLock();
   topics_.event_flag_ &= ~(1 << event_id);
-  writeTopicsInfo();
-  shmManagerUnlock();
+  writeTopicsInfo_();
 }
 
 // 清除所有事件标志位
 void ShmManager::clearAllTriggerEvents() {
-  shmManagerLock();
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   topics_.event_flag_ = 0;
-  writeTopicsInfo();
-  shmManagerUnlock();
+  writeTopicsInfo_();
 }
 
 // 批量读取并清除事件标志位（原子操作）
 // 注意：调用者必须已经持有 ShmManager 锁
 int ShmManager::readAndClearEventFlags(const std::vector<int> &event_ids_to_clear) {
   // 注意：此方法假设调用者已经持有锁，不再重复加锁
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   int current_flags = topics_.event_flag_;
   
   // 清除指定的位
@@ -440,13 +446,14 @@ int ShmManager::readAndClearEventFlags(const std::vector<int> &event_ids_to_clea
   
   // 如果有清除操作，更新到共享内存
   if (!event_ids_to_clear.empty()) {
-    writeTopicsInfo(); // writeTopicsInfo 不会加锁，只写数据
+    writeTopicsInfo_(); // writeTopicsInfo_ 不会加锁，只写数据
   }
   
   return current_flags; // 返回清除前的标志位
 }
 
 bool ShmManager::isTopicExist(const std::string &topic_name, const std::string &event_name) {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
   std::string full_name = topic_name + "_" + event_name;
   for (int i = 0; i < topics_.topics_count; i++) {
     if (std::string(topics_.topics[i].name_) == full_name) {

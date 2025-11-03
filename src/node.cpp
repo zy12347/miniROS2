@@ -135,6 +135,8 @@ void Node::heartbeatLoop() {
 // Spin循环实现
 void Node::spinLoop() {
     while (spinning_) {
+        printRegistry();
+      // std::cout << "spinLoop" << std::endl;
         // ✅ 先获取锁，再等待条件变量（符合 POSIX 规范）
         // 注意：pthread_cond_wait() 会在等待时自动释放锁，被唤醒时重新获取锁
         shm_manager_->shmManagerLock();
@@ -150,9 +152,11 @@ void Node::spinLoop() {
             std::lock_guard<std::mutex> lock(node_mutex_); // 保护 subscriptions_ 访问
             for (size_t id = 0; id < subscriptions_.size() && id < subscription_event_ids_.size(); id++) {
                 int event_id = subscription_event_ids_[id];
+                std::cout << "event_id: " << event_id << std::endl;
                 if (event_id >= 0 && event_id < 32) { // 假设使用 32 位整数
                     // 检查对应的位是否被设置
                     if (trigger_event & (1 << event_id)) {
+                        std::cout << "trigger_event: " << trigger_event << std::endl;
                         subscribers_to_execute.push_back(id);
                         event_ids_to_clear.push_back(event_id);
                     }
@@ -163,6 +167,7 @@ void Node::spinLoop() {
         // ✅ 批量清除事件标志位（在持有锁的情况下，原子操作）
         // 注意：此时已经持有 ShmManager 锁，readAndClearEventFlags 不会再加锁
         if (!event_ids_to_clear.empty()) {
+            std::cout << "readAndClearEventFlags: " << event_ids_to_clear.size() << std::endl;
             shm_manager_->readAndClearEventFlags(event_ids_to_clear);
         }
         
@@ -172,9 +177,11 @@ void Node::spinLoop() {
         // ✅ 在无锁状态下执行回调（避免长时间持有锁，防止阻塞注册表更新）
         std::lock_guard<std::mutex> lock(node_mutex_); // 保护 subscriptions_ 访问
         for (size_t id : subscribers_to_execute) {
+            std::cout << "execute: " << id << std::endl;
             if (id < subscriptions_.size()) {
                 subscriptions_[id]->execute();
             }
+            std::cout << "execute end: " << id << std::endl;
         }
         // for (auto &timer : timers_) {
         //   if (timer->isActive() &&

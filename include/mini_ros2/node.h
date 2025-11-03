@@ -76,6 +76,7 @@ public:
     
     // 注册 topic+event 组合，获取 event_id（使用原始 topic 名称，不含前缀）
     int event_id = shm_manager_->registerTopicEvent(topic_name, event_name);
+    std::cout << "event_id: " << event_id << std::endl;
     // 存储订阅者索引到 event_id 的映射（用于在 spinLoop 中映射）
     if (event_id >= 0) {
       subscription_event_ids_.push_back(event_id);

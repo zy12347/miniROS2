@@ -69,29 +69,34 @@ void ShmManager::readNodesInfo_() {
     nodes_.alive_node_count = 0;
   }
 }
-void ShmManager::readTopicsInfo_() {
+
+void ShmManager::readTopicsInfo(){
+  std::lock_guard<std::mutex> lock(registry_mutex_);
+  readTopicsInfo_();
+}
+void ShmManager::readTopicsInfoUnlocked() {
   char topic_data[TOPIC_INFO_SIZE];
   memset(topic_data, 0,
          TOPIC_INFO_SIZE); // 初始化为0
-  std::cout << "readTopicsInfo" << std::endl;
+  // std::cout << "readTopicsInfo" << std::endl;
   try {
-    std::cout << "shm_->Read" << std::endl;
-    shm_->Read(topic_data, TOPIC_INFO_SIZE);
-    std::cout << "shm_->Read done" << std::endl;
+    // std::cout << "shm_->Read" << std::endl;
+    shm_->ReadUnlocked(topic_data, TOPIC_INFO_SIZE);
+    // std::cout << "shm_->Read done" << std::endl;
     // TopicsInfo *topics = static_cast<TopicsInfo *>(topic_data);
     std::string jsonStr(topic_data);
-    std::cout << "jsonStr: " << jsonStr << std::endl;
+    // std::cout << "jsonStr: " << jsonStr << std::endl;
     // 检查是否为空或无效JSON
     if (jsonStr.empty() ||
         jsonStr.find_first_not_of(" \t\n\r") == std::string::npos) {
       // 空数据，初始化默认值
-      std::cout << "empty" << std::endl;
+      // std::cout << "empty" << std::endl;
       topics_.topics_count = 0;
       return;
     }
-    std::cout << "not empty" << std::endl;
+    // std::cout << "not empty" << std::endl;
     JsonValue json = JsonValue::deserialize(jsonStr);
-    std::cout << "json: " << json.serialize() << std::endl;
+    // std::cout << "json: " << json.serialize() << std::endl;
     topics_.topics_count = json["topic_count"].asInt();
     topics_.event_flag_ = json["event_flag_"].asInt();
     for (int i = 0; i < topics_.topics_count; i++) {
@@ -99,11 +104,42 @@ void ShmManager::readTopicsInfo_() {
       std::strcpy(topics_.topics[i].name_,
                   json["topics"][i]["name"].asString().c_str());
     }
-    std::cout << "topics_count: " << topics_.topics_count << std::endl;
-    std::cout << "event_flag_: " << topics_.event_flag_ << std::endl;
+  } catch (const std::exception &e) {
+    // JSON解析失败，初始化默认值
+    std::cout << "Failed to parse JSON from shared memory: " << e.what()
+              << std::endl;
+    topics_.topics_count = 0;
+  }
+}
+void ShmManager::readTopicsInfo_() {
+  char topic_data[TOPIC_INFO_SIZE];
+  memset(topic_data, 0,
+         TOPIC_INFO_SIZE); // 初始化为0
+  // std::cout << "readTopicsInfo" << std::endl;
+  try {
+    // std::cout << "shm_->Read" << std::endl;
+    shm_->Read(topic_data, TOPIC_INFO_SIZE);
+    // std::cout << "shm_->Read done" << std::endl;
+    // TopicsInfo *topics = static_cast<TopicsInfo *>(topic_data);
+    std::string jsonStr(topic_data);
+    // std::cout << "jsonStr: " << jsonStr << std::endl;
+    // 检查是否为空或无效JSON
+    if (jsonStr.empty() ||
+        jsonStr.find_first_not_of(" \t\n\r") == std::string::npos) {
+      // 空数据，初始化默认值
+      // std::cout << "empty" << std::endl;
+      topics_.topics_count = 0;
+      return;
+    }
+    // std::cout << "not empty" << std::endl;
+    JsonValue json = JsonValue::deserialize(jsonStr);
+    // std::cout << "json: " << json.serialize() << std::endl;
+    topics_.topics_count = json["topic_count"].asInt();
+    topics_.event_flag_ = json["event_flag_"].asInt();
     for (int i = 0; i < topics_.topics_count; i++) {
-      std::cout << "topic_id: " << topics_.topics[i].event_id_ << std::endl;
-      std::cout << "name: " << topics_.topics[i].name_ << std::endl;
+      topics_.topics[i].event_id_ = json["topics"][i]["topic_id"].asInt();
+      std::strcpy(topics_.topics[i].name_,
+                  json["topics"][i]["name"].asString().c_str());
     }
   } catch (const std::exception &e) {
     // JSON解析失败，初始化默认值
@@ -213,6 +249,11 @@ void ShmManager::writeNodesInfo_() {
   shm_->Write(json_str.c_str(), json_str.size(), TOPIC_INFO_SIZE);
 }
 
+// void shmManager::updateEventFlag_(int event_id) {
+//   std::lock_guard<std::mutex> lock(registry_mutex_);
+//   topics_.event_flag_ |= (1 << event_id);
+//   writeTopicsInfo_();
+// }
 // 写入方法：使用进程内锁保护数据访问，使用 ShmBase 锁保护共享内存写入
 void ShmManager::writeTopicsInfo_() {
   // 1. 加进程内锁保护 topics_ 的内存访问
@@ -226,15 +267,70 @@ void ShmManager::writeTopicsInfo_() {
     json["topics"][i]["name"] = std::string(topics_.topics[i].name_);
   }
   std::string json_str = json.serialize();
+  // std::cout << "writeTopicsInfo: " << json_str << std::endl;
   // 2. 锁在 lock_guard 析构时自动释放
   // 3. 调用 Write() 写入共享内存（Write() 内部会用自己的锁保护）
   shm_->Write(json_str.c_str(), json_str.size());
 }
+
+void ShmManager::writeTopicsInfoUnlocked_() {
+  // 1. 加进程内锁保护 topics_ 的内存访问
+  // std::lock_guard<std::mutex> lock(registry_mutex_);
+  JsonValue json;
+  json["topic_count"] = topics_.topics_count;
+  json["event_flag_"] = topics_.event_flag_;
+  json["topics"] = JsonArray(topics_.topics_count);
+  for (int i = 0; i < topics_.topics_count; i++) {
+    json["topics"][i]["topic_id"] = topics_.topics[i].event_id_;
+    json["topics"][i]["name"] = std::string(topics_.topics[i].name_);
+  }
+  std::string json_str = json.serialize();
+  // std::cout << "writeTopicsInfo: " << json_str << std::endl;
+  // 2. 锁在 lock_guard 析构时自动释放
+  // 3. 调用 Write() 写入共享内存（Write() 内部会用自己的锁保护）
+  shm_->WriteUnlocked(json_str.c_str(), json_str.size());
+}
+
+void ShmManager::writeNodesInfoUnlocked_() {
+  JsonValue json;
+  json["node_count"] = nodes_.nodes_count;
+  json["ref_count"] = nodes_.ref_count;
+  json["alive_node_count"] = nodes_.alive_node_count;
+  json["nodes"] = JsonArray(nodes_.nodes_count);
+  for (int i = 0; i < nodes_.nodes_count; i++) {
+    json["nodes"][i]["node_id"] = nodes_.nodes[i].node_id;
+    json["nodes"][i]["pid"] = nodes_.nodes[i].pid;
+    json["nodes"][i]["pub_topic_count"] = nodes_.nodes[i].pub_topic_count;
+    json["nodes"][i]["sub_topic_count"] = nodes_.nodes[i].sub_topic_count;
+    json["nodes"][i]["node_name"] = std::string(nodes_.nodes[i].node_name);
+    json["nodes"][i]["is_alive"] = nodes_.nodes[i].is_alive;
+    json["nodes"][i]["pub_topics"] = JsonArray(nodes_.nodes[i].pub_topic_count);
+    json["nodes"][i]["sub_topics"] = JsonArray(nodes_.nodes[i].sub_topic_count);
+    for (int j = 0; j < nodes_.nodes[i].pub_topic_count; j++) {
+      json["nodes"][i]["pub_topics"][j] =
+          std::string(nodes_.nodes[i].pub_topics[j]);
+    }
+    for (int j = 0; j < nodes_.nodes[i].sub_topic_count; j++) {
+      json["nodes"][i]["sub_topics"][j] =
+          std::string(nodes_.nodes[i].sub_topics[j]);
+    }
+    json["nodes"][i]["last_heartbeat"] = nodes_.nodes[i].last_heartbeat;
+  }
+  std::string json_str = json.serialize();
+  std::cout << "writeNodesInfo: " << json_str << std::endl;
+  shm_->WriteUnlocked(json_str.c_str(), json_str.size());
+}
+
 void ShmManager::writeRegistryToShm_() {
   // writeShmHead();
   // writeTopicsInfo() 和 writeNodesInfo() 内部已经有锁保护
   writeTopicsInfo_();
   writeNodesInfo_();
+}
+
+void ShmManager::writeRegistryToShmUnlocked_() {
+  writeTopicsInfoUnlocked_();
+  writeNodesInfoUnlocked_();
 }
 
 void ShmManager::addSubTopic(const std::string &topic_name, const std::string &event_name) {
@@ -270,6 +366,7 @@ void ShmManager::addPubTopic(const std::string &topic_name, const std::string &e
   if(event_id < 0) {
     std::cerr << "Failed to create topic event" << std::endl;
   }
+  std::cout << "event_id: " << event_id << std::endl;
   writeRegistryToShm_();
   // 锁释放后，调用 writeTopicsInfo() 和 writeNodesInfo() 写入共享内存
   // 它们内部会重新加锁读取数据并写入
@@ -331,13 +428,13 @@ void ShmManager::printRegistry() {
   std::string jsonStr(topic_data);
   std::cout << "jsonStr: " << jsonStr << std::endl;
   JsonValue json = JsonValue::deserialize(jsonStr);
-  std::cout << "topics_count: " << json["topic_count"].asInt() << std::endl;
-  std::cout << "event_flag_: " << json["event_flag_"].asInt() << std::endl;
+  // std::cout << "topics_count: " << json["topic_count"].asInt() << std::endl;
+  // std::cout << "event_flag_: " << json["event_flag_"].asInt() << std::endl;
   for (int i = 0; i < json["topic_count"].asInt(); i++) {
     std::cout << "topic_id: " << json["topics"][i]["topic_id"].asInt() << std::endl;
     std::cout << "name: " << json["topics"][i]["name"].asString() << std::endl;
   }
-  std::cout << "printRegistry" << std::endl;
+  // std::cout << "printRegistry" << std::endl;
 }
 
 // 查找或创建 topic+event 映射，返回 event_id（位索引）
@@ -358,7 +455,7 @@ int ShmManager::findOrCreateTopicEvent_(const std::string &topic_name, const std
   }
   
   // 分配新的 event_id（位索引）
-  int new_event_id = topics_.topics_count;
+  int new_event_id = topics_.topics_count + 1;
   topics_.topics[new_event_id].event_id_ = new_event_id;
   std::strcpy(topics_.topics[new_event_id].name_, full_name.c_str());
   topics_.topics_count++;
@@ -392,7 +489,7 @@ int ShmManager::getTopicEventId_(const std::string &topic_name, const std::strin
 // 触发事件：设置对应的位并通知条件变量
 void ShmManager::triggerEvent(const std::string &topic_name, const std::string &event_name) {
   std::lock_guard<std::mutex> lock(registry_mutex_);
-  std::cout << "triggerEvent: " << topic_name << " " << event_name << std::endl;
+  // std::cout << "triggerEvent: " << topic_name << " " << event_name << std::endl;
   int event_id = getTopicEventId_(topic_name, event_name);
   if (event_id >= 0) {
     std::cout << "triggerEventById: " << event_id << std::endl;
@@ -408,6 +505,7 @@ void ShmManager::triggerEventById_(int event_id) {
   
   // 设置对应的位
   topics_.event_flag_ |= (1 << event_id);
+  std::cout << "topics_.event_flag_: " << topics_.event_flag_ << std::endl;
   writeTopicsInfo_(); // 更新到共享内存
   // 在持有锁的情况下通知（避免丢失通知）
   shmManagerBroadcast_(); // 通知所有等待的线程
@@ -435,6 +533,12 @@ void ShmManager::clearAllTriggerEvents() {
 int ShmManager::readAndClearEventFlags(const std::vector<int> &event_ids_to_clear) {
   // 注意：此方法假设调用者已经持有锁，不再重复加锁
   std::lock_guard<std::mutex> lock(registry_mutex_);
+  return readAndClearEventFlagsUnlocked(event_ids_to_clear);
+}
+
+int ShmManager::readAndClearEventFlagsUnlocked(const std::vector<int> &event_ids_to_clear) {
+  // 注意：此方法假设调用者已经持有锁，不再重复加锁
+  std::cout << "readAndClearEventFlags: " << event_ids_to_clear.size() << std::endl;
   int current_flags = topics_.event_flag_;
   
   // 清除指定的位
@@ -443,12 +547,12 @@ int ShmManager::readAndClearEventFlags(const std::vector<int> &event_ids_to_clea
       topics_.event_flag_ &= ~(1 << event_id);
     }
   }
-  
+  std::cout << "topics_.event_flag_: " << topics_.event_flag_ << std::endl;
   // 如果有清除操作，更新到共享内存
   if (!event_ids_to_clear.empty()) {
-    writeTopicsInfo_(); // writeTopicsInfo_ 不会加锁，只写数据
+    writeTopicsInfoUnlocked_(); // writeTopicsInfo_ 不会加锁，只写数据
   }
-  
+  std::cout << "current_flags: " << current_flags << std::endl;
   return current_flags; // 返回清除前的标志位
 }
 

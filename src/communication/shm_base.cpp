@@ -129,6 +129,42 @@ void ShmBase::Write(const void *data, size_t size, size_t offset) {
   // sem_.Post(); // 释放信号量
 }
 
+void ShmBase::WriteUnlocked(const void *data, size_t size, size_t offset) {
+  if (offset + size > shm_.Size()) {
+    throw std::out_of_range("Write exceeds shared memory size");
+  }
+  if (shm_.Data() == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+  char *write_ptr = data_ptr_ + offset; // 写入起始地址
+  try {
+    // ✅ 修复：使用 write_ptr 而不是 data_ptr_，以支持偏移写入
+    std::memcpy(write_ptr, data, size);
+    *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::system_clock::now().time_since_epoch())
+                     .count();
+  } catch (...) {
+    // 出错时解锁，避免错误
+    throw;
+  }
+}
+
+void ShmBase::ReadUnlocked(void *buffer, size_t size, size_t offset) {
+  if (offset + size > shm_.Size()) {
+    throw std::out_of_range("read exceeds shared memory size");
+  }
+  if (shm_.Data() == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+  const char *read_ptr = data_ptr_ + offset; // 读取起始地址
+  try {
+    std::memcpy(buffer, read_ptr, size);
+  } catch (...) {
+    // 出错时解锁，避免错误
+    throw;
+  }
+}
+
 void ShmBase::Read(void *buffer, size_t size, size_t offset) {
   if (offset + size > shm_.Size()) {
     throw std::out_of_range("read exceeds shared memory size");

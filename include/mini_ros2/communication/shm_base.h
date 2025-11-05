@@ -64,6 +64,8 @@ public:
 
   void Read(void *buffer, size_t size, size_t offset = 0);
 
+  void ReadUnlocked(void *buffer, size_t size, size_t offset = 0);
+
   void Close();
 
   size_t getSize() const { return total_size_; }

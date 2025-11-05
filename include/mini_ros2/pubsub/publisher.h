@@ -36,7 +36,7 @@ public:
 
     size_t msg_serialize_size;
     msg_serialize_size = Serializer::getSerializedSize<MsgT>(data);
-    std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
+    // std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
     uint8_t *buffer = new uint8_t[msg_serialize_size];
     Serializer::serialize<MsgT>(data, buffer, msg_serialize_size);
     std::string topic_str = topic_ + "_" + event;
@@ -54,6 +54,7 @@ public:
     }
     // 触发事件：通知 ShmManager 更新 event_flag_ 并唤醒等待的订阅者
     if (shm_manager_ && !topic_name_for_event_.empty()) {
+      std::cout << "triggerEvent: " << topic_name_for_event_ << " " << event << "message: " << data.serialize() << std::endl;
       shm_manager_->triggerEvent(topic_name_for_event_, event);
     }
     

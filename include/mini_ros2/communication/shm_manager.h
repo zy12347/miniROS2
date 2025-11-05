@@ -15,7 +15,7 @@
 #define MAX_SHM_MANGER_SIZE 4 * 1024 * 1024
 #define TOPIC_INFO_SIZE 1024 * 1024
 #define NODE_INFO_SIZE 3 * 1024 * 1024
-#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager20"
+#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager4"
 
 struct TopicInfo {
   char name_[MAX_TOPIC_NAME_LEN];
@@ -117,6 +117,12 @@ public:
 
   int getTriggerEvent() { 
     std::lock_guard<std::mutex> lock(registry_mutex_);
+    // return topics_.event_flag_; 
+    return getTriggerEventUnlocked();
+  };
+
+  int getTriggerEventUnlocked() { 
+    // std::lock_guard<std::mutex> lock(registry_mutex_);
     return topics_.event_flag_; 
   };
 
@@ -137,10 +143,15 @@ public:
   // 批量读取并清除事件标志位（原子操作）
   // 返回当前的事件标志位，并清除指定的位
   int readAndClearEventFlags(const std::vector<int> &event_ids_to_clear);
+  int readAndClearEventFlagsUnlocked(const std::vector<int> &event_ids_to_clear);
 
   bool isTopicExist(const std::string &topic_name, const std::string &event_name);
 
   void setNodeId(int node_id) { node_id_ = node_id; };
+
+  void readTopicsInfo();
+
+  void readTopicsInfoUnlocked();
 
 private:
 void initializeRegistry_();
@@ -150,6 +161,10 @@ void initializeRegistry_();
   void writeRegistryToShm_(); //写入注册表到共享内存
   void writeNodesInfo_();
   void writeTopicsInfo_();
+
+  void writeRegistryToShmUnlocked_();
+  void writeNodesInfoUnlocked_();
+  void writeTopicsInfoUnlocked_();
 
   void readNodesInfo_();
   void readTopicsInfo_();

@@ -135,15 +135,18 @@ void Node::heartbeatLoop() {
 // Spin循环实现
 void Node::spinLoop() {
     while (spinning_) {
-        printRegistry();
       // std::cout << "spinLoop" << std::endl;
         // ✅ 先获取锁，再等待条件变量（符合 POSIX 规范）
         // 注意：pthread_cond_wait() 会在等待时自动释放锁，被唤醒时重新获取锁
+        std::cout << "shmManagerLock" << std::endl;
         shm_manager_->shmManagerLock();
-        shm_manager_->shmManagerWait(); // 等待条件变量通知（等待期间锁被释放）
         std::cout << "shmManagerWait" << std::endl;
+        shm_manager_->shmManagerWait(); // 等待条件变量通知（等待期间锁被释放）
+        std::cout << "getTriggerEventUnlocked" << std::endl;
+        // std::cout << "shmManagerWait" << std::endl;
         // 读取事件标志位（此时已重新持有锁）
-        int trigger_event = shm_manager_->getTriggerEvent();
+        shm_manager_->readTopicsInfoUnlocked();
+        int trigger_event = shm_manager_->getTriggerEventUnlocked();
         std::cout << "getTriggerEvent: " << trigger_event << std::endl;
         // ✅ 在持有锁的情况下，收集需要处理的订阅者索引和对应的 event_id
         std::vector<size_t> subscribers_to_execute;
@@ -168,7 +171,7 @@ void Node::spinLoop() {
         // 注意：此时已经持有 ShmManager 锁，readAndClearEventFlags 不会再加锁
         if (!event_ids_to_clear.empty()) {
             std::cout << "readAndClearEventFlags: " << event_ids_to_clear.size() << std::endl;
-            shm_manager_->readAndClearEventFlags(event_ids_to_clear);
+            shm_manager_->readAndClearEventFlagsUnlocked(event_ids_to_clear);
         }
         
         // 解锁 ShmManager（允许其他线程更新注册表或触发事件）
@@ -176,6 +179,7 @@ void Node::spinLoop() {
         
         // ✅ 在无锁状态下执行回调（避免长时间持有锁，防止阻塞注册表更新）
         std::lock_guard<std::mutex> lock(node_mutex_); // 保护 subscriptions_ 访问
+        std::cout << "subscribers_to_execute: " << subscribers_to_execute.size() << std::endl;
         for (size_t id : subscribers_to_execute) {
             std::cout << "execute: " << id << std::endl;
             if (id < subscriptions_.size()) {
@@ -183,31 +187,6 @@ void Node::spinLoop() {
             }
             std::cout << "execute end: " << id << std::endl;
         }
-        // for (auto &timer : timers_) {
-        //   if (timer->isActive() &&
-        //       now - timer->getTriggerTime() >= timer->getPeriod()) {
-        //     timer->execute();
-        //     timer->updateTriggerTime(now);
-        //   }
-        // }
-
-        // 处理回调函数
-        // if (!subscriptions_.empty()) {
-
-        //   for (const auto &sub : subscriptions_) {
-        //     sub->execute();
-        //   }
-        // }
-
-        // 等待新事件或超时
-        // if (subscriptions_.empty() && timers_.empty()) {
-        //   // 没有回调或定时器，等待通知
-        //   std::unique_lock<std::mutex> ulock(callback_mutex_);
-        //   spin_cv_.wait_for(ulock, std::chrono::milliseconds(100));
-        // } else {
-        //   // 有定时器，短暂休眠
-        //   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        // }
     }
 }
 

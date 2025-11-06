@@ -128,7 +128,26 @@
     "csignal": "cpp",
     "cassert": "cpp",
     "core": "cpp",
-    "geometry": "cpp"
+    "geometry": "cpp",
+    "queue": "cpp",
+    "*.inc": "cpp",
+    "ccomplex": "cpp",
+    "cerrno": "cpp",
+    "cfloat": "cpp",
+    "ciso646": "cpp",
+    "climits": "cpp",
+    "ios": "cpp",
+    "locale": "cpp",
+    "cstdbool": "cpp",
+    "version": "cpp",
+    "cholesky": "cpp",
+    "eigenvalues": "cpp",
+    "householder": "cpp",
+    "jacobi": "cpp",
+    "lu": "cpp",
+    "qr": "cpp",
+    "svd": "cpp",
+    "stdvector": "cpp"
   },
   "C_Cpp.errorSquiggles": "disabled"
 }

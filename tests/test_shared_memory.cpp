@@ -17,8 +17,12 @@ int main() {
   json["is_student"] = true;
   json["height"] = 1.8;
   json["weight"] = 70;
-  node.printRegistry();
-  pub->publish("test5", json);
+  // node.printRegistry();
+  while(true){
+    pub->publish("test4", json);
+    // node.printRegistry();
+    sleep(1);
+  }
   node.spin();
   return 0;
 }

@@ -3,6 +3,7 @@
 #include "mini_ros2/communication/shm_manager.h"
 #include "mini_ros2/pubsub/publisher.h"
 #include "mini_ros2/pubsub/subscriber.h"
+#include "mini_ros2/thread_pool.h"
 #include "mini_ros2/timer.h"
 #include <atomic>
 #include <condition_variable>
@@ -134,4 +135,6 @@ private:
   std::mutex node_mutex_;
   std::mutex callback_mutex_;
   std::string shm_prefix_;
+
+  std::shared_ptr<ThreadPool> thread_pool_;
 };

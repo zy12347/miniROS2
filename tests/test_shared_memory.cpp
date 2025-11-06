@@ -10,6 +10,7 @@
 int main() {
   Node node("test_node2");
   auto pub = node.createPublisher<JsonValue>("test");
+  auto pub1 = node.createPublisher<JsonValue>("test");
   JsonValue json;
   json["name"] = "John";
   json["age"] = 30;
@@ -19,7 +20,8 @@ int main() {
   json["weight"] = 70;
   // node.printRegistry();
   while(true){
-    pub->publish("test4", json);
+    pub->publish("test8", json);
+    pub1->publish("test9", json);
     // node.printRegistry();
     sleep(1);
   }

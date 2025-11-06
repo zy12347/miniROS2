@@ -15,7 +15,7 @@
 #define MAX_SHM_MANGER_SIZE 4 * 1024 * 1024
 #define TOPIC_INFO_SIZE 1024 * 1024
 #define NODE_INFO_SIZE 3 * 1024 * 1024
-#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager4"
+#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager2"
 
 struct TopicInfo {
   char name_[MAX_TOPIC_NAME_LEN];

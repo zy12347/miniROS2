@@ -20,6 +20,7 @@ Node::Node(const std::string &node_name, const std::string &name_space, int doma
     signal(SIGTERM, Node::signalHandler);
     signal_handler_node_ = this;
     registerNode();
+    thread_pool_ = std::make_shared<ThreadPool>(4);
 }
 
 Node::Node(const std::string &&node_name, const std::string &&name_space, int domain_id)
@@ -34,6 +35,7 @@ Node::Node(const std::string &&node_name, const std::string &&name_space, int do
     signal(SIGTERM, Node::signalHandler);
     signal_handler_node_ = this;
     registerNode();
+    thread_pool_ = std::make_shared<ThreadPool>(4);
 }
 
 // 注册节点
@@ -101,6 +103,12 @@ Node::~Node() {
 
     // 停止spin循环
     stop();
+
+    // ✅ 停止线程池（必须在注销节点前，确保所有任务完成）
+    if (thread_pool_) {
+        thread_pool_->stop();
+        thread_pool_ = nullptr; // 释放线程池资源
+    }
 
     // 注销节点
     unregisterNode();
@@ -177,15 +185,35 @@ void Node::spinLoop() {
         // 解锁 ShmManager（允许其他线程更新注册表或触发事件）
         shm_manager_->shmManagerUnlock();
         
-        // ✅ 在无锁状态下执行回调（避免长时间持有锁，防止阻塞注册表更新）
-        std::lock_guard<std::mutex> lock(node_mutex_); // 保护 subscriptions_ 访问
-        std::cout << "subscribers_to_execute: " << subscribers_to_execute.size() << std::endl;
-        for (size_t id : subscribers_to_execute) {
-            std::cout << "execute: " << id << std::endl;
-            if (id < subscriptions_.size()) {
-                subscriptions_[id]->execute();
+        // ✅ 在持有锁的情况下，收集订阅者指针（使用 shared_ptr 确保生命周期）
+        std::vector<std::shared_ptr<SubscriberBase>> subscribers_to_run;
+        {
+            std::lock_guard<std::mutex> lock(node_mutex_); // 保护 subscriptions_ 访问
+            std::cout << "subscribers_to_execute: " << subscribers_to_execute.size() << std::endl;
+            for (size_t id : subscribers_to_execute) {
+                if (thread_pool_ && spinning_ && id < subscriptions_.size()) {
+                    // ✅ 保存订阅者的 shared_ptr，确保在任务执行时仍然有效
+                    subscribers_to_run.push_back(subscriptions_[id]);
+                }
             }
-            std::cout << "execute end: " << id << std::endl;
+        }
+        
+        // ✅ 在无锁状态下提交任务到线程池（避免长时间持有锁）
+        for (auto& sub : subscribers_to_run) {
+            std::cout << "execute: enqueue task" << std::endl;
+            try{
+                if (thread_pool_ && spinning_) {
+                    // ✅ 使用捕获的 shared_ptr，不需要访问 Node 的成员
+                    thread_pool_->enqueue([sub]() {
+                        if (sub) {
+                            sub->execute();
+                        }
+                    });
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Task exception: " << e.what() << std::endl;
+            }
+            std::cout << "execute end: task enqueued" << std::endl;
         }
     }
 }

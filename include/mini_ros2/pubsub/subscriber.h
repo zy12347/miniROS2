@@ -1,49 +1,54 @@
 #pragma once
-#include "mini_ros2/communication/shm_base.h"
-#include "mini_ros2/message/message_serializer.h"
-#include "mini_ros2/message/qos_buffer.h"
+#include <sys/eventfd.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <functional>
 #include <iostream>
 #include <mutex>
 #include <string>
-#include <sys/eventfd.h>
-#include <unistd.h>
+
+#include "mini_ros2/communication/shm_base.h"
+#include "mini_ros2/message/message_serializer.h"
+#include "mini_ros2/message/qos_buffer.h"
 
 class SubscriberBase {
-public:
+ public:
   virtual ~SubscriberBase() = default;
   // 可添加通用接口（如取消订阅）
-  virtual void execute() = 0;
+  // virtual void execute() = 0;
+
+  virtual std::function<void()> createTaskFromSubEvent() = 0;
 };
 
 class Node;
-//需要先声明消息类别才能创建订阅者,消息类需包含serialize和deserialize方法
-// 例如:class JsonValue { public: std::string serialize() const; static Json
-template <typename MsgT> class Subscriber : public SubscriberBase {
+// 需要先声明消息类别才能创建订阅者,消息类需包含serialize和deserialize方法
+//  例如:class JsonValue { public: std::string serialize() const; static Json
+template <typename MsgT>
+class Subscriber : public SubscriberBase {
   friend class Node;
 
-public:
+ public:
   // Subscriber(const Subscriber &) = delete;
   // Subscriber &operator=(const Subscriber &) = delete;
   // Subscriber(Subscriber &&) = delete;
   // Subscriber &operator=(Subscriber &&) = delete;
-  Subscriber(const std::string &topic) : topic_(topic){};
-  ~Subscriber(){
-      // if (event_fd_ != -1) {
-      //   close(event_fd_);
-      //   if (!eventfd_path_.empty()) {
-      //     unlink(eventfd_path_.c_str()); // 删除文件系统链接
-      //   }
-      // }
+  Subscriber(const std::string& topic) : topic_(topic) {};
+  ~Subscriber() {
+    // if (event_fd_ != -1) {
+    //   close(event_fd_);
+    //   if (!eventfd_path_.empty()) {
+    //     unlink(eventfd_path_.c_str()); // 删除文件系统链接
+    //   }
+    // }
   };
-  void subscribe(const std::string &event) {
-    subscribe(event, [](const MsgT &data) {
+  void subscribe(const std::string& event) {
+    subscribe(event, [](const MsgT& data) {
       // std::cout << Serializer::serialize(data) << std::endl;
     });
   }
-  void subscribe(const std::string &event,
-                 std::function<void(const MsgT &data)> callback) {
+  void subscribe(const std::string& event,
+                 std::function<void(const MsgT& data)> callback) {
     setCallback(callback);
     if (shm_ == nullptr) {
       // 订阅时创建共享内存
@@ -57,7 +62,7 @@ public:
     shm_->Open();
   }
 
-  void setCallback(std::function<void(const MsgT &data)> callback) {
+  void setCallback(std::function<void(const MsgT& data)> callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = callback;
   }
@@ -110,30 +115,40 @@ public:
   //   ev = event_src_;
   //   return;
   // }
+  void execute(std::shared_ptr<MsgT> msg_ptr) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    callback_(*msg_ptr);
+    std::cout << "test" << std::endl;
+  }
 
-  void execute() {
+  std::function<void()> createTaskFromSubEvent() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    getMessage();
+    std::shared_ptr<MsgT> msg_ptr = std::make_shared<MsgT>(msg_);
+    return [this, msg_ptr]() { this->execute(msg_ptr); };
+  }
+
+ private:
+  void getMessage() {
     try {
       size_t msg_serialize_size = shm_->getDataSize();
       std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
-      uint8_t *data = new uint8_t[msg_serialize_size];
-      shm_->Read(data, msg_serialize_size);
-      MsgT msg;
-      Serializer::deserialize<MsgT>(data, msg_serialize_size, msg);
-      callback_(msg);
+      uint8_t* data = new uint8_t[msg_serialize_size];
+      shm_->ReadUnlocked(data, msg_serialize_size);
+      Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);
       delete[] data;
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
       std::cerr << "Subscription listen error: " << e.what() << "\n";
     }
   }
-
-private:
   std::mutex mutex_;
   std::string topic_;
   std::shared_ptr<ShmBase> shm_;
-  std::function<void(const MsgT &data)> callback_;
+  std::function<void(const MsgT& data)> callback_;
   int depth_;
   int host_id_;
   long long time_stamp_ = 0;
+  MsgT msg_;
   // int event_fd_ = -1;
   // std::string eventfd_path_;
   // EventSource event_src_;

@@ -1,30 +1,41 @@
 // #include "shared_memory.h"
+#include <unistd.h>
+
+#include <iostream>
+
 #include "mini_ros2/communication/shm_base.h"
 #include "mini_ros2/message/json.h"
 #include "mini_ros2/node.h"
 #include "mini_ros2/pubsub/publisher.h"
 #include "time.h"
-#include <iostream>
-#include <unistd.h>
 
 int main() {
   Node node("test_node2");
   auto pub = node.createPublisher<JsonValue>("test");
   auto pub1 = node.createPublisher<JsonValue>("test");
-  JsonValue json;
-  json["name"] = "John";
-  json["age"] = 30;
-  json["city"] = "New York";
-  json["is_student"] = true;
-  json["height"] = 1.8;
-  json["weight"] = 70;
   // node.printRegistry();
-  while(true){
-    pub->publish("test8", json);
-    pub1->publish("test9", json);
-    // node.printRegistry();
-    sleep(1);
-  }
+  node.createTimer(1000, [&pub, &pub1]() {
+    JsonValue json;
+    json["name"] = "John";
+    json["age"] = 30;
+    json["city"] = "New York";
+    json["is_student"] = true;
+    json["height"] = 1.8;
+    json["weight"] = 70;
+    json["time"] = std::to_string(static_cast<uint64_t>(time(nullptr)));
+
+    JsonValue json1;
+    json1["name"] = "Bod";
+    json1["age"] = 10;
+    json1["city"] = "LA";
+    json1["is_student"] = false;
+    json1["height"] = 1.2;
+    json1["weight"] = 40;
+    json1["time"] = std::to_string(static_cast<uint64_t>(time(nullptr)));
+    std::cout << "pub test" << std::endl;
+    pub->publish("test27", json);
+    pub1->publish("test28", json1);
+  });
   node.spin();
   return 0;
 }

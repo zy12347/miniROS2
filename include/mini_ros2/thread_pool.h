@@ -15,7 +15,9 @@ class ThreadPool {
     for (int i = 0; i < num_threads; i++) {
       //   std::cout << "ThreadPool constructor: " << i << std::endl;
       try {
-        workers_.emplace_back([this]() {
+        workers_.emplace_back([this, i]() {
+          std::string thread_name = "thread_pool_" + std::to_string(i);
+          pthread_setname_np(pthread_self(), thread_name.c_str());
           while (true) {
             std::function<void()> task;
             std::unique_lock<std::mutex> lock(mutex_);

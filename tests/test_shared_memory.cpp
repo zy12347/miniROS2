@@ -10,6 +10,7 @@
 #include "time.h"
 
 int main() {
+  pthread_setname_np(pthread_self(), "main1");
   Node node("test_node2");
   auto pub = node.createPublisher<JsonValue>("test");
   auto pub1 = node.createPublisher<JsonValue>("test");
@@ -32,9 +33,9 @@ int main() {
     json1["height"] = 1.2;
     json1["weight"] = 40;
     json1["time"] = std::to_string(static_cast<uint64_t>(time(nullptr)));
-    std::cout << "pub test" << std::endl;
-    pub->publish("test27", json);
-    pub1->publish("test28", json1);
+    // std::cout << "pub test" << std::endl;
+    pub->publish("test", json);
+    pub1->publish("test1", json1);
   });
   node.spin();
   return 0;

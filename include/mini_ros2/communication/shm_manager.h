@@ -1,5 +1,4 @@
 #include <pthread.h>
-
 #include <atomic>
 #include <iostream>
 #include <mutex>
@@ -7,6 +6,7 @@
 #include <vector>
 
 #include "mini_ros2/communication/shm_base.h"
+#include "mini_ros2/communication/event_notification_shm.h"
 #include "mini_ros2/message/json.h"
 
 #define MAX_NODE_COUNT 16
@@ -16,7 +16,7 @@
 #define MAX_SHM_MANGER_SIZE 4 * 1024 * 1024
 #define TOPIC_INFO_SIZE 1024 * 1024
 #define NODE_INFO_SIZE 3 * 1024 * 1024
-#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager15"
+#define SHM_MANAGER_NAME "/miniros2_dds_shm_manager"
 
 struct TopicInfo {
   char name_[MAX_TOPIC_NAME_LEN];
@@ -29,7 +29,7 @@ struct TopicInfo {
 
 struct TopicsInfo {
   int topics_count;
-  int event_flag_;  // 0为默认registry变动,第i位表示第i个事件变动
+  // event_flag_ 已移至独立的 EventNotificationShm，不再存储在注册表中
   TopicInfo topics[MAX_TOPICS_PER_NODE];
 };
 
@@ -72,7 +72,8 @@ class ShmManager {
   // 去中心化构造函数：检查共享内存是否存在，不存在则创建
   ShmManager();
 
-  //   ~ShmManager();
+  // 析构函数：清理共享内存
+  ~ShmManager();
   void addSubTopic(const std::string& topic_name,
                    const std::string& event_name);
   void addPubTopic(const std::string& topic_name,
@@ -99,42 +100,26 @@ class ShmManager {
   //   ShmManagerHead *getShmManagerHeaderPtr();
   // void readShmManagerHeaderInfo();
 
-  void shmManagerWait() {
-    std::lock_guard<std::mutex> lock(registry_mutex_);
-    shm_->shmBaseWait();
-  };
+  // 事件通知相关方法（使用独立的事件通知共享内存）
+  // 等待事件（带超时），返回当前的事件标志位
+  uint32_t waitForEvent(uint64_t timeout_ms) {
+    return event_notification_shm_->waitForEvent(timeout_ms);
+  }
 
-  void shmManagerWaitTimeOut(uint64_t timeout_ms) {
-    std::lock_guard<std::mutex> lock(registry_mutex_);
-    shm_->shmBaseWaitTimeOut(timeout_ms);
-  };
+  // 读取事件标志位（不清除）
+  uint32_t getTriggerEvent() {
+    return event_notification_shm_->readEvents();
+  }
 
-  // 注意：shmManagerLock/Unlock 用于条件变量等待（使用 ShmBase 的锁）
-  void shmManagerLock() {
-    std::lock_guard<std::mutex> lock(registry_mutex_);
-    shm_->shmBaseLock();
-  };
+  // 读取并清除事件标志位
+  uint32_t readAndClearEvents() {
+    return event_notification_shm_->readAndClearEvents();
+  }
 
-  void shmManagerUnlock() {
-    std::lock_guard<std::mutex> lock(registry_mutex_);
-    shm_->shmBaseUnlock();
-  };
-
-  void shmManagerSignal() {
-    std::lock_guard<std::mutex> lock(registry_mutex_);
-    shm_->shmBaseSignal();
-  };
-
-  int getTriggerEvent() {
-    std::lock_guard<std::mutex> lock(registry_mutex_);
-    // return topics_.event_flag_;
-    return getTriggerEventUnlocked();
-  };
-
-  int getTriggerEventUnlocked() {
-    // std::lock_guard<std::mutex> lock(registry_mutex_);
-    return topics_.event_flag_;
-  };
+  // 唤醒所有等待事件的线程（用于退出时）
+  void notifyAllWaiters() {
+    event_notification_shm_->notifyAll();
+  }
 
   // 事件触发相关方法
   // 注册 topic+event 组合，返回分配的 event_id（位索引）
@@ -153,11 +138,8 @@ class ShmManager {
   void clearTriggerEvent(int event_id);
   void clearAllTriggerEvents();
 
-  // 批量读取并清除事件标志位（原子操作）
-  // 返回当前的事件标志位，并清除指定的位
-  int readAndClearEventFlags(const std::vector<int>& event_ids_to_clear);
-  int readAndClearEventFlagsUnlocked(
-      const std::vector<int>& event_ids_to_clear);
+  // 注意：readAndClearEventFlags 已废弃，使用 readAndClearEvents() 代替
+  // 如果需要清除特定的事件位，可以在读取后手动清除
 
   bool isTopicExist(const std::string& topic_name,
                     const std::string& event_name);
@@ -167,6 +149,15 @@ class ShmManager {
   void readTopicsInfo();
 
   void readTopicsInfoUnlocked();
+
+  // 注册表锁管理（用于保护本地 topics_ 和 nodes_ 数据访问）
+  void shmManagerLockRegistry() {
+    registry_mutex_.lock();
+  }
+
+  void shmManagerUnlockRegistry() {
+    registry_mutex_.unlock();
+  }
 
  private:
   void initializeRegistry_();
@@ -187,13 +178,13 @@ class ShmManager {
   int getTopicEventId_(const std::string& topic_name,
                        const std::string& event_name);
 
-  void shmManagerBroadcast_() { shm_->shmBaseBroadcast(); };
   // 触发事件（通过 event_id）
   void triggerEventById_(int event_id);
   int node_id_ = -1;
   NodesInfo nodes_;
   TopicsInfo topics_;
   std::shared_ptr<ShmBase> shm_;
+  std::shared_ptr<EventNotificationShm> event_notification_shm_;  // 独立的事件通知共享内存
   int shm_fd_ = -1;
   //   uint64_t *time_ptr_ = nullptr;
   //   char *data_ptr_;

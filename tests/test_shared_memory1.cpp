@@ -7,13 +7,14 @@
 #include "mini_ros2/node.h"
 #include "mini_ros2/pubsub/subscriber.h"
 int main() {
+  pthread_setname_np(pthread_self(), "main2");
   Node Node("test_node2");
   auto sub = Node.createSubscriber<JsonValue>(
-      "test", "test23", [](const JsonValue& data) {
+      "test", "test", [](const JsonValue& data) {
         std::cout << "Received: " << data.serialize() << std::endl;
       });  // topic event function
   auto sub1 = Node.createSubscriber<JsonValue>(
-      "test", "test24", [](const JsonValue& data) {
+      "test", "test1", [](const JsonValue& data) {
         std::cout << "Received1: " << data.serialize() << std::endl;
       });  // topic event function
   Node.printRegistry();

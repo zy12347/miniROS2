@@ -108,12 +108,12 @@ class ShmBase {
     abstime.tv_nsec += (timeout_ms % 1000) * 1000000;
     // std::cout << "shmBaseWaitTimeOut: " << timeout_ms << std::endl;
     int ret = pthread_cond_timedwait(cond_ptr_, mutex_ptr_, &abstime);
-    if (ret == ETIMEDOUT) {
-      return;
-    } else if (ret != 0) {
-      throw std::runtime_error("条件变量等待失败：" +
-                               std::string(strerror(ret)));
-    }
+    // if (ret == ETIMEDOUT) {
+    //   return;
+    // } else if (ret != 0) {
+    //   throw std::runtime_error("条件变量等待失败：" +
+    //                            std::string(strerror(ret)));
+    // }
   }
 
   void shmBaseSignal() { pthread_cond_signal(cond_ptr_); }

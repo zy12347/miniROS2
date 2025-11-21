@@ -9,6 +9,8 @@
 # 默认构建类型为 Release
 BUILD_TYPE="Release"
 
+rm /dev/shm/*
+echo "clean shm done"
 # 检查构建类型参数
 if [ "$1" = "debug" ]; then
     BUILD_TYPE="Debug"

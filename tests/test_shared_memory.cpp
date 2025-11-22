@@ -37,6 +37,7 @@ int main() {
     pub->publish("test", json);
     pub1->publish("test1", json1);
   });
+  node.printRegistry();
   node.spin();
   return 0;
 }

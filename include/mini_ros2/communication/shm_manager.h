@@ -1,12 +1,13 @@
 #include <pthread.h>
+
 #include <atomic>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <vector>
 
-#include "mini_ros2/communication/shm_base.h"
 #include "mini_ros2/communication/event_notification_shm.h"
+#include "mini_ros2/communication/shm_base.h"
 #include "mini_ros2/message/json.h"
 
 #define MAX_NODE_COUNT 16
@@ -63,7 +64,6 @@ struct NodeInfo {
 struct NodesInfo {
   int nodes_count;
   int alive_node_count;
-  int ref_count;
   NodeInfo nodes[MAX_NODE_COUNT];
 };
 
@@ -107,9 +107,7 @@ class ShmManager {
   }
 
   // 读取事件标志位（不清除）
-  uint32_t getTriggerEvent() {
-    return event_notification_shm_->readEvents();
-  }
+  uint32_t getTriggerEvent() { return event_notification_shm_->readEvents(); }
 
   // 读取并清除事件标志位
   uint32_t readAndClearEvents() {
@@ -117,9 +115,7 @@ class ShmManager {
   }
 
   // 唤醒所有等待事件的线程（用于退出时）
-  void notifyAllWaiters() {
-    event_notification_shm_->notifyAll();
-  }
+  void notifyAllWaiters() { event_notification_shm_->notifyAll(); }
 
   // 事件触发相关方法
   // 注册 topic+event 组合，返回分配的 event_id（位索引）
@@ -151,13 +147,9 @@ class ShmManager {
   void readTopicsInfoUnlocked();
 
   // 注册表锁管理（用于保护本地 topics_ 和 nodes_ 数据访问）
-  void shmManagerLockRegistry() {
-    registry_mutex_.lock();
-  }
+  void shmManagerLockRegistry() { registry_mutex_.lock(); }
 
-  void shmManagerUnlockRegistry() {
-    registry_mutex_.unlock();
-  }
+  void shmManagerUnlockRegistry() { registry_mutex_.unlock(); }
 
  private:
   void initializeRegistry_();
@@ -184,7 +176,8 @@ class ShmManager {
   NodesInfo nodes_;
   TopicsInfo topics_;
   std::shared_ptr<ShmBase> shm_;
-  std::shared_ptr<EventNotificationShm> event_notification_shm_;  // 独立的事件通知共享内存
+  std::shared_ptr<EventNotificationShm>
+      event_notification_shm_;  // 独立的事件通知共享内存
   int shm_fd_ = -1;
   //   uint64_t *time_ptr_ = nullptr;
   //   char *data_ptr_;

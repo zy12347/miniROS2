@@ -38,12 +38,12 @@ Node::Node(const std::string& node_name, const std::string& name_space,
   // 初始化共享内存前缀（结合命名空间和域ID，避免冲突）
   std::string name = name_space.empty() ? name_space_ : name_space + "_";
   shm_prefix_ = "/" + std::to_string(domain_id_) + "_" + name;
-  //   shm_manager_ = std::make_shared<ShmManager>();
+  shm_manager_ = std::make_shared<ShmManager>();
   signal(SIGINT, Node::signalHandler);
   signal(SIGTERM, Node::signalHandler);
   signal(SIGTSTP, Node::signalHandler);
   signal_handler_node_ = this;
-  //   registerNode();
+  registerNode();
   thread_pool_ = std::make_shared<ThreadPool>(4);
   std::cout << "Node constructor: " << node_name_ << std::endl;
 }

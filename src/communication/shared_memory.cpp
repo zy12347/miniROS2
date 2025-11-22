@@ -14,7 +14,7 @@ bool SharedMemory::Create() {
   if (is_owner_) {
     return true;  // 已经是创建者，直接返回
   }
-  std::cout << name_ << std::endl;
+  // std::cout << name_ << std::endl;
   fd_ = shm_open(
       name_.c_str(), O_CREAT | O_EXCL | O_RDWR,
       0666);  // 创建共享内存并可读可写,如果已存在则创建失败.0666表示权限
@@ -37,6 +37,7 @@ bool SharedMemory::Create() {
     return false;  // 映射失败
   }
   is_owner_ = true;
+  std::cout << name_ << " is_owner_: " << is_owner_ << std::endl;
   return true;
 }
 
@@ -77,7 +78,7 @@ bool SharedMemory::Close() {
     ::close(fd_);
     fd_ = -1;
   }
-  is_owner_ = false;
+  // is_owner_ = false;
   return true;
 }
 

@@ -48,10 +48,11 @@ void ShmManager::readNodesInfo_() {
   memset(node_data, 0,
          NODE_INFO_SIZE);  // 初始化为0
   try {
+    std::cout << "read node info_" << std::endl;
     shm_->Read(node_data, NODE_INFO_SIZE, TOPIC_INFO_SIZE);
     // NodesInfo *nodes = static_cast<NodesInfo *>(node_data);
     std::string jsonStr(node_data);
-
+    std::cout << jsonStr << std::endl;
     // 检查是否为空或无效JSON
     if (jsonStr.empty() ||
         jsonStr.find_first_not_of(" \t\n\r") == std::string::npos) {
@@ -74,14 +75,6 @@ void ShmManager::readNodesInfo_() {
       std::strcpy(nodes_.nodes[i].node_name,
                   json["nodes"][i]["node_name"].asString().c_str());
       nodes_.nodes[i].is_alive = json["nodes"][i]["is_alive"].asBool();
-      for (int j = 0; j < nodes_.nodes[i].pub_topic_count; j++) {
-        std::strcpy(nodes_.nodes[i].pub_topics[j],
-                    json["nodes"][i]["pub_topics"][j].asString().c_str());
-      }
-      for (int j = 0; j < nodes_.nodes[i].sub_topic_count; j++) {
-        std::strcpy(nodes_.nodes[i].sub_topics[j],
-                    json["nodes"][i]["sub_topics"][j].asString().c_str());
-      }
       nodes_.nodes[i].last_heartbeat =
           json["nodes"][i]["last_heartbeat"].asInt();
     }
@@ -178,10 +171,19 @@ void ShmManager::initializeRegistry_() {
   readTopicsInfo_();
   readNodesInfo_();
 }
+
+void ShmManager::syncRegistryFromShm() {
+  std::lock_guard<std::mutex> lock(registry_mutex_);
+  std::cout << "syncRegistry " << std::endl;
+  readTopicsInfo_();
+  std::cout << "read node info" << std::endl;
+  readNodesInfo_();
+}
 void ShmManager::updateNodeHeartbeat() {
   std::lock_guard<std::mutex> lock(registry_mutex_);
   nodes_.nodes[node_id_].last_heartbeat = time(nullptr);
-  writeRegistryToShm_();
+  // writeRegistryToShm_();
+  writeNodesInfo_();
   // TBD心跳更新会频繁写入共享内存，后面优化为修改而非覆写
 };
 
@@ -196,13 +198,15 @@ void ShmManager::addNode(const NodeInfo& node_info) {
   nodes_.nodes[node_id_] = node_info;
   nodes_.nodes_count++;
   nodes_.alive_node_count++;
-  writeRegistryToShm_();
+  // writeRegistryToShm_();
+  writeNodesInfo_();
 }
 
 void ShmManager::updateNodeInfo(const NodeInfo& node_info) {
   std::lock_guard<std::mutex> lock(registry_mutex_);
   nodes_.nodes[node_id_] = node_info;
-  writeRegistryToShm_();
+  // writeRegistryToShm_();
+  writeNodesInfo_();
 };
 void ShmManager::removeNode() {
   std::lock_guard<std::mutex> lock(registry_mutex_);
@@ -211,6 +215,7 @@ void ShmManager::removeNode() {
   nodes_.alive_node_count--;
   nodes_.nodes_count--;
   writeNodesInfo_();
+  triggerEventById_(MAX_TOPICS_PER_NODE - 1);
 }
 
 void ShmManager::getNodeInfo(NodeInfo& node_info) {
@@ -255,16 +260,6 @@ void ShmManager::writeNodesInfo_() {
     json["nodes"][i]["sub_topic_count"] = nodes_.nodes[i].sub_topic_count;
     json["nodes"][i]["node_name"] = std::string(nodes_.nodes[i].node_name);
     json["nodes"][i]["is_alive"] = nodes_.nodes[i].is_alive;
-    json["nodes"][i]["pub_topics"] = JsonArray(nodes_.nodes[i].pub_topic_count);
-    json["nodes"][i]["sub_topics"] = JsonArray(nodes_.nodes[i].sub_topic_count);
-    for (int j = 0; j < nodes_.nodes[i].pub_topic_count; j++) {
-      json["nodes"][i]["pub_topics"][j] =
-          std::string(nodes_.nodes[i].pub_topics[j]);
-    }
-    for (int j = 0; j < nodes_.nodes[i].sub_topic_count; j++) {
-      json["nodes"][i]["sub_topics"][j] =
-          std::string(nodes_.nodes[i].sub_topics[j]);
-    }
     json["nodes"][i]["last_heartbeat"] = nodes_.nodes[i].last_heartbeat;
   }
   std::string json_str = json.serialize();
@@ -329,16 +324,18 @@ void ShmManager::writeNodesInfoUnlocked_() {
     json["nodes"][i]["sub_topic_count"] = nodes_.nodes[i].sub_topic_count;
     json["nodes"][i]["node_name"] = std::string(nodes_.nodes[i].node_name);
     json["nodes"][i]["is_alive"] = nodes_.nodes[i].is_alive;
-    json["nodes"][i]["pub_topics"] = JsonArray(nodes_.nodes[i].pub_topic_count);
-    json["nodes"][i]["sub_topics"] = JsonArray(nodes_.nodes[i].sub_topic_count);
-    for (int j = 0; j < nodes_.nodes[i].pub_topic_count; j++) {
-      json["nodes"][i]["pub_topics"][j] =
-          std::string(nodes_.nodes[i].pub_topics[j]);
-    }
-    for (int j = 0; j < nodes_.nodes[i].sub_topic_count; j++) {
-      json["nodes"][i]["sub_topics"][j] =
-          std::string(nodes_.nodes[i].sub_topics[j]);
-    }
+    // json["nodes"][i]["pub_topics"] =
+    // JsonArray(nodes_.nodes[i].pub_topic_count);
+    // json["nodes"][i]["sub_topics"] =
+    // JsonArray(nodes_.nodes[i].sub_topic_count); for (int j = 0; j <
+    // nodes_.nodes[i].pub_topic_count; j++) {
+    //   json["nodes"][i]["pub_topics"][j] =
+    //       std::string(nodes_.nodes[i].pub_topics[j]);
+    // }
+    // for (int j = 0; j < nodes_.nodes[i].sub_topic_count; j++) {
+    //   json["nodes"][i]["sub_topics"][j] =
+    //       std::string(nodes_.nodes[i].sub_topics[j]);
+    // }
     json["nodes"][i]["last_heartbeat"] = nodes_.nodes[i].last_heartbeat;
   }
   std::string json_str = json.serialize();
@@ -363,9 +360,9 @@ void ShmManager::addSubTopic(const std::string& topic_name,
   // 使用进程内锁保护 nodes_ 和 topics_ 的访问
   std::lock_guard<std::mutex> lock(registry_mutex_);
   if (nodes_.nodes[node_id_].sub_topic_count < MAX_TOPICS_PER_NODE) {
-    std::strcpy(nodes_.nodes[node_id_]
-                    .sub_topics[nodes_.nodes[node_id_].sub_topic_count],
-                topic_name.c_str());
+    // std::strcpy(nodes_.nodes[node_id_]
+    //                 .sub_topics[nodes_.nodes[node_id_].sub_topic_count],
+    //             topic_name.c_str());
     nodes_.nodes[node_id_].sub_topic_count++;
   }
   // 查找或创建 topic event，findOrCreateTopicEvent_ 内部会处理 topics_ 的更新
@@ -373,7 +370,8 @@ void ShmManager::addSubTopic(const std::string& topic_name,
   if (event_id < 0) {
     std::cerr << "Failed to create topic event" << std::endl;
   }
-  writeRegistryToShm_();
+  // writeRegistryToShm_();
+  writeNodesInfo_();
   // 锁释放后，调用 writeTopicsInfo() 和 writeNodesInfo() 写入共享内存
   // 它们内部会重新加锁读取数据并写入
 }
@@ -384,9 +382,9 @@ void ShmManager::addPubTopic(const std::string& topic_name,
   std::lock_guard<std::mutex> lock(registry_mutex_);
   std::string full_name = topic_name + "_" + event_name;
   if (nodes_.nodes[node_id_].pub_topic_count < MAX_TOPICS_PER_NODE) {
-    std::strcpy(nodes_.nodes[node_id_]
-                    .pub_topics[nodes_.nodes[node_id_].pub_topic_count],
-                full_name.c_str());
+    // std::strcpy(nodes_.nodes[node_id_]
+    //                 .pub_topics[nodes_.nodes[node_id_].pub_topic_count],
+    //             full_name.c_str());
     nodes_.nodes[node_id_].pub_topic_count++;
   }
   // 查找或创建 topic event，findOrCreateTopicEvent_ 内部会处理 topics_ 的更新
@@ -409,46 +407,50 @@ void ShmManager::addPubTopic(const std::string& topic_name,
 void ShmManager::removeSubTopic(const std::string& topic_name,
                                 const std::string& event_name) {
   std::lock_guard<std::mutex> lock(registry_mutex_);
-  for (int i = 0; i < nodes_.nodes[node_id_].sub_topic_count; i++) {
-    if (nodes_.nodes[node_id_].sub_topics[i] == topic_name) {
-      // 移除topic，将后面的元素前移
-      for (int j = i; j < nodes_.nodes[node_id_].sub_topic_count - 1; j++) {
-        std::strcpy(nodes_.nodes[node_id_].sub_topics[j],
-                    nodes_.nodes[node_id_].sub_topics[j + 1]);
-      }
-      nodes_.nodes[node_id_].sub_topic_count--;
-      writeRegistryToShm_();
-      break;
-    }
-  }
+  // for (int i = 0; i < nodes_.nodes[node_id_].sub_topic_count; i++) {
+  //   if (nodes_.nodes[node_id_].sub_topics[i] == topic_name) {
+  //     // 移除topic，将后面的元素前移
+  //     // for (int j = i; j < nodes_.nodes[node_id_].sub_topic_count - 1; j++)
+  //     {
+  //     //   std::strcpy(nodes_.nodes[node_id_].sub_topics[j],
+  //     //               nodes_.nodes[node_id_].sub_topics[j + 1]);
+  //     // }
+  //     nodes_.nodes[node_id_].sub_topic_count--;
+  //     writeRegistryToShm_();
+  //     break;
+  //   }
+  // }
 }
 
 void ShmManager::removePubTopic(const std::string& topic_name,
                                 const std::string& event_name) {
   std::lock_guard<std::mutex> lock(registry_mutex_);
-  for (int i = 0; i < nodes_.nodes[node_id_].pub_topic_count; i++) {
-    if (nodes_.nodes[node_id_].pub_topics[i] == topic_name) {
-      // 移除topic，将后面的元素前移
-      for (int j = i; j < nodes_.nodes[node_id_].pub_topic_count - 1; j++) {
-        std::strcpy(nodes_.nodes[node_id_].pub_topics[j],
-                    nodes_.nodes[node_id_].pub_topics[j + 1]);
-      }
-      nodes_.nodes[node_id_].pub_topic_count--;
-      writeRegistryToShm_();
-      break;
-    }
-  }
+  // for (int i = 0; i < nodes_.nodes[node_id_].pub_topic_count; i++) {
+  //   if (nodes_.nodes[node_id_].pub_topics[i] == topic_name) {
+  //     // 移除topic，将后面的元素前移
+  //     // for (int j = i; j < nodes_.nodes[node_id_].pub_topic_count - 1; j++)
+  //     {
+  //     //   std::strcpy(nodes_.nodes[node_id_].pub_topics[j],
+  //     //               nodes_.nodes[node_id_].pub_topics[j + 1]);
+  //     // }
+  //     nodes_.nodes[node_id_].pub_topic_count--;
+  //     writeRegistryToShm_();
+  //     break;
+  //   }
+  // }
 }
 
 void ShmManager::updateNodeAlive() {
   std::lock_guard<std::mutex> lock(registry_mutex_);
   nodes_.nodes[node_id_].is_alive = true;
-  writeRegistryToShm_();
+  // writeRegistryToShm_();
+  writeNodesInfo_();
 }
 void ShmManager::updateNodeName(const std::string& node_name) {
   std::lock_guard<std::mutex> lock(registry_mutex_);
   std::strcpy(nodes_.nodes[node_id_].node_name, node_name.c_str());
-  writeRegistryToShm_();
+  // writeRegistryToShm_();
+  writeNodesInfo_();
 }
 
 void ShmManager::printRegistry() {

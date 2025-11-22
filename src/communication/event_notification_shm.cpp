@@ -118,7 +118,7 @@ void EventNotificationShm::initMutexAndCond() {
 
   // 设置初始化标志
   head->initialized_ = 0x4556454E;  // "EVEN"
-  head->event_flag_ = 0;
+  head->event_flag_.reset();
   head->time_ = 0;
 
   cachePointers();
@@ -139,7 +139,7 @@ void EventNotificationShm::cachePointers() {
 }
 
 void EventNotificationShm::triggerEvent(int event_id) {
-  if (event_id < 0 || event_id >= 32) {
+  if (event_id < 0 || event_id >= EVENT_MAX_COUNT) {
     return;  // 无效的 event_id
   }
 
@@ -157,7 +157,7 @@ void EventNotificationShm::triggerEvent(int event_id) {
 
   try {
     // 设置对应的位
-    *event_flag_ptr_ |= (1 << event_id);
+    event_flag_ptr_->set(event_id);
     // 更新时间戳
     data_ptr_->time_ = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
@@ -177,7 +177,8 @@ void EventNotificationShm::triggerEvent(int event_id) {
   }
 }
 
-uint32_t EventNotificationShm::waitForEvent(uint64_t timeout_ms) {
+std::bitset<EVENT_MAX_COUNT> EventNotificationShm::waitForEvent(
+    uint64_t timeout_ms) {
   if (mutex_ptr_ == nullptr) {
     throw std::runtime_error(
         "Event notification shared memory not initialized");
@@ -190,7 +191,7 @@ uint32_t EventNotificationShm::waitForEvent(uint64_t timeout_ms) {
                              std::string(strerror(ret)));
   }
 
-  uint32_t event_flag = 0;
+  std::bitset<EVENT_MAX_COUNT> event_flag;
   try {
     // 等待条件变量（带超时）
     struct timespec abstime;
@@ -229,7 +230,7 @@ uint32_t EventNotificationShm::waitForEvent(uint64_t timeout_ms) {
   return event_flag;
 }
 
-uint32_t EventNotificationShm::readAndClearEvents() {
+std::bitset<EVENT_MAX_COUNT> EventNotificationShm::readAndClearEvents() {
   if (mutex_ptr_ == nullptr) {
     throw std::runtime_error(
         "Event notification shared memory not initialized");
@@ -242,11 +243,11 @@ uint32_t EventNotificationShm::readAndClearEvents() {
                              std::string(strerror(ret)));
   }
 
-  uint32_t event_flag = 0;
+  std::bitset<EVENT_MAX_COUNT> event_flag;
   try {
     // 读取并清除事件标志位
     event_flag = *event_flag_ptr_;
-    *event_flag_ptr_ = 0;
+    event_flag_ptr_->reset();
   } catch (...) {
     pthread_mutex_unlock(mutex_ptr_);
     throw;
@@ -262,7 +263,7 @@ uint32_t EventNotificationShm::readAndClearEvents() {
   return event_flag;
 }
 
-uint32_t EventNotificationShm::readEvents() const {
+std::bitset<EVENT_MAX_COUNT> EventNotificationShm::readEvents() const {
   if (mutex_ptr_ == nullptr) {
     throw std::runtime_error(
         "Event notification shared memory not initialized");
@@ -275,7 +276,7 @@ uint32_t EventNotificationShm::readEvents() const {
                              std::string(strerror(ret)));
   }
 
-  uint32_t event_flag = *event_flag_ptr_;
+  std::bitset<EVENT_MAX_COUNT> event_flag = *event_flag_ptr_;
 
   // 释放锁
   ret = pthread_mutex_unlock(mutex_ptr_);
@@ -316,7 +317,7 @@ void EventNotificationShm::clearEvents(int event_id) {
                              std::string(strerror(ret)));
   }
 
-  *event_flag_ptr_ &= ~(1 << event_id);
+  event_flag_ptr_->reset(event_id);
 
   // 释放锁
   ret = pthread_mutex_unlock(mutex_ptr_);
@@ -338,7 +339,7 @@ void EventNotificationShm::clearEvents() {
                              std::string(strerror(ret)));
   }
 
-  *event_flag_ptr_ = 0;
+  event_flag_ptr_->reset();
 
   // 释放锁
   ret = pthread_mutex_unlock(mutex_ptr_);

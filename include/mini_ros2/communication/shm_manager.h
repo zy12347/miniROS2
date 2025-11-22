@@ -10,27 +10,22 @@
 #include "mini_ros2/communication/shm_base.h"
 #include "mini_ros2/message/json.h"
 
+#define MAX_TOPICS_PER_NODE EVENT_MAX_COUNT
 #define MAX_NODE_COUNT 16
-#define MAX_TOPICS_PER_NODE 32
-#define MAX_NODE_NAME_LEN 256
-#define MAX_TOPIC_NAME_LEN 256
-#define MAX_SHM_MANGER_SIZE 4 * 1024 * 1024
-#define TOPIC_INFO_SIZE 1024 * 1024
-#define NODE_INFO_SIZE 3 * 1024 * 1024
+#define MAX_NODE_NAME_LEN 64
+#define MAX_TOPIC_NAME_LEN 64
 #define SHM_MANAGER_NAME "/miniros2_dds_shm_manager"
+#define TOPIC_INFO_SIZE sizeof(TopicsInfo)
+#define NODE_INFO_SIZE sizeof(NodesInfo)
+#define MAX_SHM_MANGER_SIZE sizeof(ShmManagerInfo)
 
 struct TopicInfo {
   char name_[MAX_TOPIC_NAME_LEN];
   int event_id_;
-  // TopicInfo() {
-  //   name_[0] = "\0";
-  //   event_id_ = -1;
-  // }
 };
 
 struct TopicsInfo {
   int topics_count;
-  // event_flag_ 已移至独立的 EventNotificationShm，不再存储在注册表中
   TopicInfo topics[MAX_TOPICS_PER_NODE];
 };
 
@@ -42,29 +37,17 @@ struct NodeInfo {
   bool is_alive;
   int last_heartbeat;
   char node_name[MAX_NODE_NAME_LEN];
-  // std::string node_namespace;
-  char pub_topics[MAX_TOPICS_PER_NODE][MAX_TOPIC_NAME_LEN];
-  char sub_topics[MAX_TOPICS_PER_NODE][MAX_TOPIC_NAME_LEN];
-  // NodeInfo() {
-  //   node_id = -1;
-  //   pid = -1;
-  //   pub_topic_count = -1;
-  //   sub_topic_count = -1;
-  //   node_name[0] = '\0'; // 确保字符串以null结尾
-  //   is_alive = false;
-  //   last_heartbeat = -1;
-  //   // 初始化所有topic数组元素为空字符串
-  //   for (int i = 0; i < MAX_TOPICS_PER_NODE; i++) {
-  //     pub_topics[i][0] = '\0';
-  //     sub_topics[i][0] = '\0';
-  //   }
-  // }
 };
 
 struct NodesInfo {
   int nodes_count;
   int alive_node_count;
   NodeInfo nodes[MAX_NODE_COUNT];
+};
+
+struct ShmManagerInfo {
+  TopicsInfo topic_info;
+  NodesInfo nodes_info;
 };
 
 class ShmManager {
@@ -102,15 +85,17 @@ class ShmManager {
 
   // 事件通知相关方法（使用独立的事件通知共享内存）
   // 等待事件（带超时），返回当前的事件标志位
-  uint32_t waitForEvent(uint64_t timeout_ms) {
+  std::bitset<EVENT_MAX_COUNT> waitForEvent(uint64_t timeout_ms) {
     return event_notification_shm_->waitForEvent(timeout_ms);
   }
 
   // 读取事件标志位（不清除）
-  uint32_t getTriggerEvent() { return event_notification_shm_->readEvents(); }
+  std::bitset<EVENT_MAX_COUNT> getTriggerEvent() {
+    return event_notification_shm_->readEvents();
+  }
 
   // 读取并清除事件标志位
-  uint32_t readAndClearEvents() {
+  std::bitset<EVENT_MAX_COUNT> readAndClearEvents() {
     return event_notification_shm_->readAndClearEvents();
   }
 
@@ -151,6 +136,8 @@ class ShmManager {
 
   void shmManagerUnlockRegistry() { registry_mutex_.unlock(); }
 
+  void syncRegistryFromShm();
+
  private:
   void initializeRegistry_();
   // 内部方法：查找或创建 topic+event 映射
@@ -175,6 +162,7 @@ class ShmManager {
   int node_id_ = -1;
   NodesInfo nodes_;
   TopicsInfo topics_;
+  ShmManagerInfo shm_manager_info_;
   std::shared_ptr<ShmBase> shm_;
   std::shared_ptr<EventNotificationShm>
       event_notification_shm_;  // 独立的事件通知共享内存

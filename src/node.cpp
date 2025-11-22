@@ -91,21 +91,6 @@ void Node::registerNode() {
   new_node.pid = getpid();
   new_node.last_heartbeat = time(nullptr);
   new_node.is_alive = true;
-
-  // 填充发布话题
-  new_node.pub_topic_count =
-      std::min((int)pub_topics_.size(), MAX_TOPICS_PER_NODE);
-  for (int i = 0; i < new_node.pub_topic_count; i++) {
-    std::strcpy(new_node.pub_topics[i], pub_topics_[i].c_str());
-  }
-
-  // 填充订阅话题
-  new_node.sub_topic_count =
-      std::min((int)sub_topics_.size(), MAX_TOPICS_PER_NODE);
-  for (int i = 0; i < new_node.sub_topic_count; i++) {
-    std::strcpy(new_node.sub_topics[i], sub_topics_[i].c_str());
-  }
-
   // 更新活跃节点计数
   shm_manager_->addNode(new_node);
 
@@ -176,7 +161,8 @@ void Node::spinLoop() {
     //    不再需要复杂的锁管理，事件通知和注册表已分离
     uint64_t timeout = std::min(min_timer_period_,
                                 static_cast<uint64_t>(100));  // 最多等待100ms
-    uint32_t trigger_event = shm_manager_->waitForEvent(timeout);
+    std::bitset<EVENT_MAX_COUNT> trigger_event =
+        shm_manager_->waitForEvent(timeout);
 
     // 检查是否应该退出（在等待期间 spinning_ 可能被设置为 false）
     if (!spinning_) {
@@ -186,15 +172,13 @@ void Node::spinLoop() {
 
     // 2. 读取注册表信息（如果需要更新本地 topics_ 缓存）
     //    注意：注册表更新频率低，可以定期读取，不需要每次事件都读取
-    shm_manager_->readTopicsInfo();
+    // shm_manager_->readTopicsInfo();
 
     // 3. 获取 registry_mutex_ 来访问本地 topics_ 数据（用于查找 event_id 对应的
     // topic）
     shm_manager_->shmManagerLockRegistry();
-    int trigger_event_int = static_cast<int>(
-        trigger_event);  // 在持有锁的情况下，收集需要处理的订阅者索引和对应的
-                         // event_id
-    if (trigger_event_int > 0) {
+    // event_id
+    if (trigger_event.any()) {
       //   std::cout << "getTriggerEvent: " << trigger_event_int
       //             << " (binary: " << std::bitset<32>(trigger_event_int) <<
       //             ")"
@@ -211,9 +195,10 @@ void Node::spinLoop() {
           int event_id = subscription_event_ids_[id];
           std::cout << "  subscription[" << id << "] event_id: " << event_id
                     << std::endl;
-          if (event_id >= 0 && event_id < 32) {  // 假设使用 32 位整数
+          if (event_id >= 0 &&
+              event_id < EVENT_MAX_COUNT) {  // 假设使用 32 位整数
             // 检查对应的位是否被设置
-            bool is_triggered = (trigger_event_int & (1 << event_id)) != 0;
+            bool is_triggered = trigger_event[event_id];
             std::cout << "    bit " << event_id << " is "
                       << (is_triggered ? "SET" : "NOT SET") << std::endl;
             if (is_triggered) {
@@ -248,7 +233,10 @@ void Node::spinLoop() {
     }
     // 解锁 ShmManager（允许其他线程更新注册表或触发事件）
     shm_manager_->shmManagerUnlockRegistry();
-
+    if (trigger_event[EVENT_MAX_COUNT - 1]) {
+      shm_manager_->syncRegistryFromShm();
+      shm_manager_->clearTriggerEvent(EVENT_MAX_COUNT - 1);
+    }
     // std::cout << "timer" << std::endl;
     for (auto& timer : timers_) {
       if (timer->isReady()) {

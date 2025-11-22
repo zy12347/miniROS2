@@ -10,7 +10,7 @@ void ShmBase::Create() {
 }
 
 void ShmBase::initMutexAndCond() {
-  ShmHead *head = static_cast<ShmHead *>(shm_.Data());
+  ShmHead* head = static_cast<ShmHead*>(shm_.Data());
   if (!head) {
     throw std::runtime_error("获取共享内存头部指针失败");
   }
@@ -62,13 +62,13 @@ void ShmBase::initMutexAndCond() {
   pthread_condattr_destroy(&cond_attr);
 
   // 设置初始化标志
-  head->initialized_ = 0x4D525332; // "MRS2"
+  head->initialized_ = 0x4D525332;  // "MRS2"
   head->time_ = 0;
 
   CachePointers(head);
 }
 
-void ShmBase::CachePointers(ShmHead *head) {
+void ShmBase::CachePointers(ShmHead* head) {
   mutex_ptr_ = &head->mutex_;
   cond_ptr_ = &head->cond_;
   time_ptr_ = &head->time_;
@@ -79,14 +79,14 @@ void ShmBase::CachePointers(ShmHead *head) {
   // 将 head 转换为 ShmData* 时，data_[0] 就指向 ShmHead 之后的第一个字节
   // ShmData *shm_data = reinterpret_cast<ShmData *>(head + 1);
   // data_ptr_ = shm_data->data_;
-  
+
   // 或者更直接的方法（等价）：
   // data_ptr_ = reinterpret_cast<char *>(head) + sizeof(ShmHead);
-  data_ptr_ = reinterpret_cast<char *>(head) + sizeof(ShmHead);
+  data_ptr_ = reinterpret_cast<char*>(head) + sizeof(ShmHead);
 }
 
 bool ShmBase::Exists() const { return shm_.Exists(); }
-void ShmBase::Write(const void *data, size_t size, size_t offset) {
+void ShmBase::Write(const void* data, size_t size, size_t offset) {
   if (offset + size > shm_.Size()) {
     throw std::out_of_range("Write exceeds shared memory size");
   }
@@ -104,14 +104,14 @@ void ShmBase::Write(const void *data, size_t size, size_t offset) {
   if (mutex_ptr_ == nullptr) {
     throw std::runtime_error("互斥锁指针未初始化，请先调用 Open()");
   }
-  char *write_ptr = data_ptr_ + offset; // 写入起始地址
+  char* write_ptr = data_ptr_ + offset;  // 写入起始地址
   // sem_.Wait(); // 获取信号量
   int ret = pthread_mutex_lock(mutex_ptr_);
   if (ret != 0) {
     throw std::runtime_error("获取互斥锁失败：" + std::string(strerror(ret)));
   }
   try {
-    // ✅ 修复：使用 write_ptr 而不是 data_ptr_，以支持偏移写入
+    // 修复：使用 write_ptr 而不是 data_ptr_，以支持偏移写入
     std::memcpy(write_ptr, data, size);
     *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
                      std::chrono::system_clock::now().time_since_epoch())
@@ -124,21 +124,22 @@ void ShmBase::Write(const void *data, size_t size, size_t offset) {
   // 解锁
   ret = pthread_mutex_unlock(mutex_ptr_);
   if (ret != 0) {
-    throw std::runtime_error("释放互斥锁失败WRITE: " + std::string(strerror(ret)));
+    throw std::runtime_error("释放互斥锁失败WRITE: " +
+                             std::string(strerror(ret)));
   }
   // sem_.Post(); // 释放信号量
 }
 
-void ShmBase::WriteUnlocked(const void *data, size_t size, size_t offset) {
+void ShmBase::WriteUnlocked(const void* data, size_t size, size_t offset) {
   if (offset + size > shm_.Size()) {
     throw std::out_of_range("Write exceeds shared memory size");
   }
   if (shm_.Data() == nullptr) {
     throw std::runtime_error("Shared memory not initialized");
   }
-  char *write_ptr = data_ptr_ + offset; // 写入起始地址
+  char* write_ptr = data_ptr_ + offset;  // 写入起始地址
   try {
-    // ✅ 修复：使用 write_ptr 而不是 data_ptr_，以支持偏移写入
+    // 修复：使用 write_ptr 而不是 data_ptr_，以支持偏移写入
     std::memcpy(write_ptr, data, size);
     *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
                      std::chrono::system_clock::now().time_since_epoch())
@@ -149,14 +150,14 @@ void ShmBase::WriteUnlocked(const void *data, size_t size, size_t offset) {
   }
 }
 
-void ShmBase::ReadUnlocked(void *buffer, size_t size, size_t offset) {
+void ShmBase::ReadUnlocked(void* buffer, size_t size, size_t offset) {
   if (offset + size > shm_.Size()) {
     throw std::out_of_range("read exceeds shared memory size");
   }
   if (shm_.Data() == nullptr) {
     throw std::runtime_error("Shared memory not initialized");
   }
-  const char *read_ptr = data_ptr_ + offset; // 读取起始地址
+  const char* read_ptr = data_ptr_ + offset;  // 读取起始地址
   try {
     std::memcpy(buffer, read_ptr, size);
   } catch (...) {
@@ -165,7 +166,7 @@ void ShmBase::ReadUnlocked(void *buffer, size_t size, size_t offset) {
   }
 }
 
-void ShmBase::Read(void *buffer, size_t size, size_t offset) {
+void ShmBase::Read(void* buffer, size_t size, size_t offset) {
   if (offset + size > shm_.Size()) {
     throw std::out_of_range("read exceeds shared memory size");
   }
@@ -181,7 +182,7 @@ void ShmBase::Read(void *buffer, size_t size, size_t offset) {
   }
   // data_ptr_ 已经指向数据区开始（跳过 ShmHead），不需要再加 offset_
   // sem_.Wait(); // 获取信号量
-  const char *read_ptr = data_ptr_ + offset; // 读取起始地址
+  const char* read_ptr = data_ptr_ + offset;  // 读取起始地址
 
   // 加锁（互斥访问）
   int ret = pthread_mutex_lock(mutex_ptr_);
@@ -190,7 +191,7 @@ void ShmBase::Read(void *buffer, size_t size, size_t offset) {
   }
   try {
     // 读取数据
-    // ✅ 修复：使用 read_ptr 而不是 data_ptr_，以支持偏移读取
+    // 修复：使用 read_ptr 而不是 data_ptr_，以支持偏移读取
     std::memcpy(buffer, read_ptr, size);
   } catch (...) {
     pthread_mutex_unlock(mutex_ptr_);
@@ -199,7 +200,8 @@ void ShmBase::Read(void *buffer, size_t size, size_t offset) {
   // 解锁
   ret = pthread_mutex_unlock(mutex_ptr_);
   if (ret != 0) {
-    throw std::runtime_error("释放互斥锁失败READ: " + std::string(strerror(ret)));
+    throw std::runtime_error("释放互斥锁失败READ: " +
+                             std::string(strerror(ret)));
   }
   // sem_.Post(); // 释放信号量
 }

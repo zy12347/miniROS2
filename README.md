@@ -145,36 +145,36 @@ classDiagram
         + call(Req, Res) bool
     }
     
-    QoSMessageBuffer --|> SharedMemory : uses
-    QoSMessageBuffer --|> QoSPolicy : uses
+    QoSMessageBuffer --> SharedMemory : uses
+    QoSMessageBuffer --> QoSPolicy : uses
     
-    Publisher --|> Node : has
-    Publisher --|> QoSMessageBuffer : uses
-    Publisher --|> Semaphore : uses
-    Publisher --|> QoSPolicy : uses
+    Publisher --> Node : has
+    Publisher --> QoSMessageBuffer : uses
+    Publisher --> Semaphore : uses
+    Publisher --> QoSPolicy : uses
     
-    Subscriber --|> Node : has
-    Subscriber --|> QoSMessageBuffer : uses
-    Subscriber --|> Semaphore : uses
-    Subscriber --|> QoSPolicy : uses
+    Subscriber --> Node : has
+    Subscriber --> QoSMessageBuffer : uses
+    Subscriber --> Semaphore : uses
+    Subscriber --> QoSPolicy : uses
     
-    Node --|> NodeDiscovery : contains
+    Node --> NodeDiscovery : contains
     
-    NodeDiscovery --|> SharedMemory : uses
-    NodeDiscovery --|> Semaphore : uses
+    NodeDiscovery --> SharedMemory : uses
+    NodeDiscovery --> Semaphore : uses
     
-    Service --|> Node : has
-    Service --|> SharedMemory : uses
-    Service --|> Semaphore : uses
-    Service --|> QoSPolicy : uses
+    Service --> Node : has
+    Service --> SharedMemory : uses
+    Service --> Semaphore : uses
+    Service --> QoSPolicy : uses
     
-    Client --|> Node : has
-    Client --|> SharedMemory : uses
-    Client --|> Semaphore : uses
-    Client --|> QoSPolicy : uses
+    Client --> Node : has
+    Client --> SharedMemory : uses
+    Client --> Semaphore : uses
+    Client --> QoSPolicy : uses
     
-    Service -- Client : communicates with
-    Publisher -- Subscriber : communicates with
+    Service <--> Client : communicates with
+    Publisher <--> Subscriber : communicates with
 ```
 
 ## 安装与构建
@@ -182,7 +182,7 @@ classDiagram
 ### 环境要求
 
 - Linux 操作系统（支持 POSIX 共享内存）
-- C++17 兼容的编译器
+- C++11 兼容的编译器
 - CMake 3.10 或更高版本
 
 ### 构建步骤
@@ -196,6 +196,7 @@ cd miniROS2
 2. 使用提供的构建脚本
 ```bash
 ./build.sh
+./build.sh debug
 ```
 
 3. 手动构建（可选）
@@ -449,7 +450,17 @@ ipcs -m | grep miniros2 | awk '{print $2}' | xargs -I {} ipcrm -m {}
 
 ## 许可证
 
-[在此添加许可证信息]
+本项目采用 [MIT 许可证](LICENSE)。
+
+MIT 许可证是一个宽松的开源许可证，允许：
+- 商业使用
+- 修改
+- 分发
+- 私人使用
+
+唯一的要求是保留原始的版权声明和许可证声明。
+
+完整的许可证文本请参阅 [LICENSE](LICENSE) 文件。
 
 ## 贡献指南
 
@@ -462,4 +473,4 @@ ipcs -m | grep miniros2 | awk '{print $2}' | xargs -I {} ipcrm -m {}
 
 ## 联系方式
 
-[在此添加项目维护者的联系方式]
+[zy865928318@gmail.com]

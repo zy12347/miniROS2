@@ -13,6 +13,7 @@ struct ShmHead {
   uint32_t initialized_;  // 初始化标志：0x4D525332 = "MRS2" (MiniROS2)
   pthread_mutex_t mutex_;
   pthread_cond_t cond_;
+  int32_t ref_count_;
   uint64_t time_;
 };
 
@@ -35,6 +36,7 @@ class ShmBase {
     offset_ = sizeof(ShmHead);
     data_size_ = total_size_ - offset_;
   }
+  ~ShmBase();
 
   void Create();
   bool Exists() const;  // 检查共享内存是否存在
@@ -49,13 +51,15 @@ class ShmBase {
     // 只有在创建新的共享内存时才初始化互斥锁和条件变量
     // 如果打开已存在的共享内存，只缓存指针，不重新初始化
 
-    // 使用双重检查：IsOwner() OR 未初始化标志
+    // 使用双重检查：is_creator_ OR 未初始化标志
     // 原因：如果创建进程崩溃，互斥锁可能未初始化，需要重新初始化
     // 检查初始化标志位（magic number "MRS2" = 0x4D525332）
-    if (shm_.IsOwner() || head->initialized_ != 0x4D525332) {
+    if (is_creator_ || head->initialized_ != 0x4D525332) {
       initMutexAndCond();
     } else {
       CachePointers(head);
+      // 增加引用计数（非创建者）
+      incrementRefCount();
     }
     // if (!sem_.Open()) {
     //   throw std::runtime_error("Failed to open semaphore");
@@ -120,6 +124,10 @@ class ShmBase {
 
   void shmBaseBroadcast() { pthread_cond_broadcast(cond_ptr_); }
 
+  // 引用计数管理
+  void incrementRefCount();
+  void decrementRefCount();
+
  private:
   void CachePointers(ShmHead* head);
   // MySemaphore sem_;
@@ -132,5 +140,7 @@ class ShmBase {
   pthread_mutex_t* mutex_ptr_ = nullptr;
   pthread_cond_t* cond_ptr_ = nullptr;
   uint64_t* time_ptr_ = nullptr;
+  int32_t* ref_count_ptr_ = nullptr;  // 引用计数指针
   char* data_ptr_;
+  bool is_creator_ = false;  // 是否是创建者（用于判断是否初始化 ref_count_）
 };

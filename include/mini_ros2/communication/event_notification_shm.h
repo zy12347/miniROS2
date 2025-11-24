@@ -10,8 +10,8 @@
 #include "mini_ros2/communication/shared_memory.h"
 
 #define EVENT_NOTIFICATION_SHM_NAME "/miniros2_event_notification"
-#define EVENT_NOTIFICATION_SHM_SIZE 4096  // 轻量级，只需要存储事件标志
-#define EVENT_MAX_COUNT 1024              // 位数
+#define EVENT_NOTIFICATION_SHM_SIZE sizeof(EventNotificationData)
+#define EVENT_MAX_COUNT 128              // 位数
 // 事件通知共享内存数据结构
 struct EventNotificationData {
   uint32_t
@@ -21,10 +21,11 @@ struct EventNotificationData {
   // uint32_t event_flag_;    // 事件标志位（第i位表示第i个事件）
   std::bitset<EVENT_MAX_COUNT> event_flag_;
   uint64_t time_;  // 时间戳
-  char padding_[EVENT_NOTIFICATION_SHM_SIZE - sizeof(uint32_t) -
-                sizeof(pthread_mutex_t) - sizeof(pthread_cond_t) -
-                sizeof(std::bitset<EVENT_MAX_COUNT>) -
-                sizeof(uint64_t)];  // 填充到固定大小
+  int32_t ref_count_;  // 引用计数（进程间共享）
+  // char padding_[EVENT_NOTIFICATION_SHM_SIZE - sizeof(uint32_t) -
+  //               sizeof(pthread_mutex_t) - sizeof(pthread_cond_t) -
+  //               sizeof(std::bitset<EVENT_MAX_COUNT>) -
+  //               sizeof(uint64_t) - sizeof(int32_t)];  // 填充到固定大小
 };
 
 // 独立的事件通知共享内存管理类
@@ -80,5 +81,10 @@ class EventNotificationShm {
   pthread_mutex_t* mutex_ptr_ = nullptr;
   pthread_cond_t* cond_ptr_ = nullptr;
   std::bitset<EVENT_MAX_COUNT>* event_flag_ptr_ = nullptr;
+  int32_t* ref_count_ptr_ = nullptr;  // 引用计数指针
   bool is_owner_ = false;
+
+  // 引用计数管理
+  void incrementRefCount();
+  void decrementRefCount();
 };

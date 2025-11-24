@@ -5,6 +5,7 @@
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>
+#include "mini_ros2/logger.h"
 
 std::unordered_map<std::string, std::string> node_registry; //节点->端口
 std::mutex registry_mutex; // 用于保护 node_registry 的互斥锁
@@ -20,8 +21,7 @@ void handle_client(int client_socket) {
       std::lock_guard<std::mutex> lock(registry_mutex);
       node_registry[node_name] = node_addr;
     }
-    std::cout << "Registered: " << node_name << " at " << node_addr
-              << std::endl;
+    LOGD("Registered: " << node_name << " at " << node_addr);
     send(client_socket, "OK", 2, 0);
   }
   close(client_socket);
@@ -44,7 +44,7 @@ int main() {
     close(server_fd);
     return EXIT_FAILURE;
   } // 监听连接（最多允许5个排队连接）
-  std::cout << "Registry server started on port 8080" << std::endl;
+  LOGD("Registry server started on port 8080");
   while (true) {
     int client_socket = accept(server_fd, nullptr, nullptr);
     std::thread(handle_client, client_socket).detach();

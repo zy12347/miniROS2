@@ -1,9 +1,11 @@
 #include "mini_ros2/communication/shm_base.h"
+#include "mini_ros2/logger.h"
 
 void ShmBase::Create() {
   if (!shm_.Create()) {
     throw std::runtime_error("Failed to create shared memory");
   }
+  is_creator_ = true;  // 标记为创建者
   // if (!sem_.Create()) {
   //   throw std::runtime_error("Failed to create semaphore");
   // }
@@ -64,6 +66,7 @@ void ShmBase::initMutexAndCond() {
   // 设置初始化标志
   head->initialized_ = 0x4D525332;  // "MRS2"
   head->time_ = 0;
+  head->ref_count_ = 1;  // 创建者初始化为1
 
   CachePointers(head);
 }
@@ -72,6 +75,7 @@ void ShmBase::CachePointers(ShmHead* head) {
   mutex_ptr_ = &head->mutex_;
   cond_ptr_ = &head->cond_;
   time_ptr_ = &head->time_;
+  ref_count_ptr_ = &head->ref_count_;
 
   // 数据区紧跟在ShmHead之后
   // 使用 sizeof(ShmHead) 计算偏移，确保指向数据区开始
@@ -210,4 +214,71 @@ void ShmBase::Close() {
   if (!shm_.Close()) {
     throw std::runtime_error("Failed to close shared memory");
   }
+}
+
+ShmBase::~ShmBase() {
+  bool should_unlink = false;
+  
+  if (ref_count_ptr_ && mutex_ptr_) {
+    // 减少引用计数
+    decrementRefCount();
+    
+    // 检查是否需要 Unlink
+    int ret = pthread_mutex_lock(mutex_ptr_);
+    if (ret == 0) {
+      LOGD("ShmBase destructor: ref_count = " << *ref_count_ptr_);
+      if (*ref_count_ptr_ == 0) {
+        should_unlink = true;
+        LOGD("ShmBase destructor: last reference, will unlink shared memory "
+             << name_);
+      }
+      pthread_mutex_unlock(mutex_ptr_);
+    }
+  }
+  
+  // 先关闭映射
+  shm_.Close();
+  
+  // 如果引用计数为0，删除共享内存对象
+  if (should_unlink) {
+    shm_.Unlink();
+  }
+}
+
+void ShmBase::incrementRefCount() {
+  if (ref_count_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    return;  // 未初始化
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    return;  // 获取锁失败，忽略错误
+  }
+
+  (*ref_count_ptr_)++;
+  LOGD("ShmBase ref_count incremented to: " << *ref_count_ptr_);
+
+  // 释放锁
+  pthread_mutex_unlock(mutex_ptr_);
+}
+
+void ShmBase::decrementRefCount() {
+  if (ref_count_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    return;  // 未初始化
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    return;  // 获取锁失败，忽略错误
+  }
+
+  if (*ref_count_ptr_ > 0) {
+    (*ref_count_ptr_)--;
+    LOGD("ShmBase ref_count decremented to: " << *ref_count_ptr_);
+  }
+
+  // 释放锁
+  pthread_mutex_unlock(mutex_ptr_);
 }

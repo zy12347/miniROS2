@@ -11,7 +11,7 @@ class ThreadPool {
  public:
   ThreadPool(int num_threads) {
     stop_ = false;
-    std::cout << "ThreadPool constructors: " << num_threads << std::endl;
+    LOGD("ThreadPool constructors: " << num_threads);
     for (int i = 0; i < num_threads; i++) {
       //   std::cout << "ThreadPool constructor: " << i << std::endl;
       try {

@@ -1,13 +1,11 @@
 #include "mini_ros2/node.h"
-
-#include <bitset>
+#include "mini_ros2/logger.h"
 Node* Node::signal_handler_node_ = nullptr;
 
 // 信号处理函数
 void Node::signalHandler(int signum) {
   if (signal_handler_node_) {
-    std::cout << "\nReceived signal " << signum << ", stopping node..."
-              << std::endl;
+    LOGD("\nReceived signal " << signum << ", stopping node...");
     std::string signame;
     switch (signum) {
       case SIGINT:
@@ -22,8 +20,8 @@ void Node::signalHandler(int signum) {
       default:
         signame = "unknown signal";
     }
-    std::cout << "Signal received,exiting normally to allow cleanup signame: "
-              << signame << std::endl;
+    LOGD("Signal received,exiting normally to allow cleanup signame: "
+         << signame);
     signal_handler_node_->stop();
     // signal_handler_node_->unregisterNode();
 
@@ -38,14 +36,14 @@ Node::Node(const std::string& node_name, const std::string& name_space,
   // 初始化共享内存前缀（结合命名空间和域ID，避免冲突）
   std::string name = name_space.empty() ? name_space_ : name_space + "_";
   shm_prefix_ = "/" + std::to_string(domain_id_) + "_" + name;
-  shm_manager_ = std::make_shared<ShmManager>();
+  // shm_manager_ = std::make_shared<ShmManager>();
   signal(SIGINT, Node::signalHandler);
   signal(SIGTERM, Node::signalHandler);
   signal(SIGTSTP, Node::signalHandler);
   signal_handler_node_ = this;
   registerNode();
   thread_pool_ = std::make_shared<ThreadPool>(4);
-  std::cout << "Node constructor: " << node_name_ << std::endl;
+  LOGD("Node constructor: " << node_name_);
 }
 
 Node::Node(const std::string&& node_name, const std::string&& name_space,
@@ -54,31 +52,30 @@ Node::Node(const std::string&& node_name, const std::string&& name_space,
   // 初始化共享内存前缀（结合命名空间和域ID，避免冲突）
   std::string name = name_space.empty() ? name_space_ : name_space + "_";
   shm_prefix_ = "/" + std::to_string(domain_id_) + "_" + name;
-  shm_manager_ = std::make_shared<ShmManager>();
+  // shm_manager_ = std::make_shared<ShmManager>();
   signal(SIGINT, Node::signalHandler);
   signal(SIGTERM, Node::signalHandler);
   signal(SIGTSTP, Node::signalHandler);
   signal_handler_node_ = this;
   registerNode();
-  std::cout << "after registerNode" << std::endl;
+  LOGD("after registerNode");
   thread_pool_ = std::make_shared<ThreadPool>(4);
-  std::cout << "Node constructor: " << node_name_ << std::endl;
+  LOGD("Node constructor: " << node_name_);
 }
 
 // 注册节点
 void Node::registerNode() {
-  std::cout << "registerNode: " << node_name_ << std::endl;
-  if (!shm_manager_) return;
+  LOGD("registerNode: " << node_name_);
 
   // 检查节点数量限制
-  if (shm_manager_->getAliveNodeCount() >= MAX_NODE_COUNT) {
+  if (SHM_MANAGER->getAliveNodeCount() >= MAX_NODE_COUNT) {
     std::cerr << "Maximum node count reached" << std::endl;
     return;
   }
 
   // 分配节点ID
-  node_id_ = shm_manager_->getNextNodeId();
-  shm_manager_->setNodeId(node_id_);
+  node_id_ = SHM_MANAGER->getNextNodeId();
+  SHM_MANAGER->setNodeId(node_id_);
   if (node_id_ == -1) {
     std::cerr << "No free slot for new node" << std::endl;
     return;
@@ -92,18 +89,16 @@ void Node::registerNode() {
   new_node.last_heartbeat = time(nullptr);
   new_node.is_alive = true;
   // 更新活跃节点计数
-  shm_manager_->addNode(new_node);
+  SHM_MANAGER->addNode(new_node);
 
-  std::cout << "Node registered: " << node_name_ << " (ID: " << node_id_ << ")"
-            << std::endl;
+  LOGD("Node registered: " << node_name_ << " (ID: " << node_id_ << ")");
   return;
 }
 
 void Node::unregisterNode() {
-  if (!shm_manager_) return;
-  std::cout << "unregisterNode: " << node_name_ << std::endl;
-  // shm_manager_->alive_node_count--;
-  shm_manager_->removeNode();
+  LOGD("unregisterNode: " << node_name_);
+  // SHM_MANAGER->alive_node_count--;
+  SHM_MANAGER->removeNode();
 }
 
 // 析构函数
@@ -122,6 +117,11 @@ Node::~Node() {
   // 注销节点
   unregisterNode();
 
+  // 清理 ShmManager 单例（最后一个节点退出时）
+  // 注意：这里不直接调用 Cleanup，因为可能有多个 Node 实例
+  // 让 atexit 注册的清理函数在程序退出时统一处理
+  // 或者可以在最后一个节点退出时调用 ShmManager::Cleanup()
+
   // 重置信号处理
   if (signal_handler_node_ == this) {
     signal_handler_node_ = nullptr;
@@ -133,9 +133,9 @@ Node::~Node() {
 // 心跳循环
 void Node::heartbeatLoop() {
   while (heartbeat_running_) {
-    if (shm_manager_ && node_id_ != 0) {
-      if (shm_manager_->isNodeAlive()) {
-        shm_manager_->updateNodeHeartbeat();
+    if (node_id_ != 0) {
+      if (SHM_MANAGER->isNodeAlive()) {
+        SHM_MANAGER->updateNodeHeartbeat();
         break;
       }
     }
@@ -147,7 +147,7 @@ void Node::heartbeatLoop() {
 // Spin循环实现
 void Node::spinLoop() {
   pthread_setname_np(pthread_self(), "spinloop");
-  std::cout << "spinLoop started" << std::endl;
+  LOGD("spinLoop started");
   while (spinning_) {
     // std::cout << "spinLoop" << std::endl;
     // 先获取共享内存锁，再等待条件变量（符合 POSIX 规范）
@@ -162,11 +162,11 @@ void Node::spinLoop() {
     uint64_t timeout = std::min(min_timer_period_,
                                 static_cast<uint64_t>(100));  // 最多等待100ms
     std::bitset<EVENT_MAX_COUNT> trigger_event =
-        shm_manager_->waitForEvent(timeout);
+        SHM_MANAGER->waitForEvent(timeout);
 
     // 检查是否应该退出（在等待期间 spinning_ 可能被设置为 false）
     if (!spinning_) {
-      std::cout << "spinLoop: spinning_ is false, exiting loop" << std::endl;
+      LOGD("spinLoop: spinning_ is false, exiting loop");
       break;
     }
 
@@ -176,7 +176,7 @@ void Node::spinLoop() {
 
     // 3. 获取 registry_mutex_ 来访问本地 topics_ 数据（用于查找 event_id 对应的
     // topic）
-    shm_manager_->shmManagerLockRegistry();
+    SHM_MANAGER->shmManagerLockRegistry();
     // event_id
     if (trigger_event.any()) {
       //   std::cout << "getTriggerEvent: " << trigger_event_int
@@ -193,17 +193,16 @@ void Node::spinLoop() {
              id < subscriptions_.size() && id < subscription_event_ids_.size();
              id++) {
           int event_id = subscription_event_ids_[id];
-          std::cout << "  subscription[" << id << "] event_id: " << event_id
-                    << std::endl;
+          LOGD("  subscription[" << id << "] event_id: " << event_id);
           if (event_id >= 0 &&
               event_id < EVENT_MAX_COUNT) {  // 假设使用 32 位整数
             // 检查对应的位是否被设置
             bool is_triggered = trigger_event[event_id];
-            std::cout << "    bit " << event_id << " is "
-                      << (is_triggered ? "SET" : "NOT SET") << std::endl;
+            LOGD("    bit " << event_id << " is "
+                 << (is_triggered ? "SET" : "NOT SET"));
             if (is_triggered) {
-              std::cout << "    Processing event for subscription[" << id
-                        << "] with event_id=" << event_id << std::endl;
+              LOGD("    Processing event for subscription[" << id
+                   << "] with event_id=" << event_id);
               try {
                 if (thread_pool_ && spinning_) {
                   // 使用捕获的 shared_ptr，不需要访问 Node 的成员
@@ -211,8 +210,7 @@ void Node::spinLoop() {
                       subscriptions_[id]
                           ->createTaskFromSubEvent();  // 拷贝数据并创建任务
                   thread_pool_->enqueue(std::move(task_func));
-                  std::cout << "    Enqueued task for subscription[" << id
-                            << "]" << std::endl;
+                  LOGD("    Enqueued task for subscription[" << id << "]");
                   // 记录已处理的事件ID
                   processed_event_ids.push_back(event_id);
                 }
@@ -227,15 +225,15 @@ void Node::spinLoop() {
       // 只清除已处理的事件标志位，而不是全部清除
       // 这样可以避免清除其他进程/线程同时触发的事件
       for (int event_id : processed_event_ids) {
-        shm_manager_->clearTriggerEvent(event_id);
-        std::cout << "  Cleared event_id=" << event_id << std::endl;
+        SHM_MANAGER->clearTriggerEvent(event_id);
+        LOGD("  Cleared event_id=" << event_id);
       }
     }
     // 解锁 ShmManager（允许其他线程更新注册表或触发事件）
-    shm_manager_->shmManagerUnlockRegistry();
+    SHM_MANAGER->shmManagerUnlockRegistry();
     if (trigger_event[EVENT_MAX_COUNT - 1]) {
-      shm_manager_->syncRegistryFromShm();
-      shm_manager_->clearTriggerEvent(EVENT_MAX_COUNT - 1);
+      // SHM_MANAGER->syncRegistryFromShm();
+      SHM_MANAGER->clearAllTriggerEvents();
     }
     // std::cout << "timer" << std::endl;
     for (auto& timer : timers_) {
@@ -255,7 +253,7 @@ void Node::spinLoop() {
       }
     }
   }
-  std::cout << "spinLoop ended" << std::endl;
+  LOGD("spinLoop ended");
   return;
 }
 
@@ -280,11 +278,9 @@ void Node::stop() {
   thread_pool_->stop();
   // 唤醒所有等待事件的线程，确保 spinLoop 能够及时退出
   // 这很重要，因为 waitForEvent() 可能在等待条件变量
-  if (shm_manager_) {
-    // std::cout << "Node::stop() calling notifyAllWaiters()" << std::endl;
-    shm_manager_->notifyAllWaiters();
-  }
+  // std::cout << "Node::stop() calling notifyAllWaiters()" << std::endl;
+  SHM_MANAGER->notifyAllWaiters();
   //   std::cout << "Node::stop() completed" << std::endl;
 }
 
-void Node::printRegistry() { shm_manager_->printRegistry(); }
+void Node::printRegistry() { SHM_MANAGER->printRegistry(); }

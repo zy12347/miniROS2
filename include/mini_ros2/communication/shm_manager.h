@@ -1,23 +1,25 @@
+#pragma once
 #include <pthread.h>
-
 #include <atomic>
+#include <cstdlib>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "mini_ros2/communication/event_notification_shm.h"
-#include "mini_ros2/communication/shm_base.h"
-#include "mini_ros2/message/json.h"
+#include "mini_ros2/communication/shared_memory.h"
 
 #define MAX_TOPICS_PER_NODE EVENT_MAX_COUNT
 #define MAX_NODE_COUNT 16
 #define MAX_NODE_NAME_LEN 64
-#define MAX_TOPIC_NAME_LEN 64
+// MAX_TOPIC_NAME_LEN 从 64 减少到 32，可节省约 32 KB（如果使用1024 topics）
+// 但配合 256 topics 时，节省约 8 KB
+#define MAX_TOPIC_NAME_LEN 32  // 原为 64
 #define SHM_MANAGER_NAME "/miniros2_dds_shm_manager"
-#define TOPIC_INFO_SIZE sizeof(TopicsInfo)
-#define NODE_INFO_SIZE sizeof(NodesInfo)
-#define MAX_SHM_MANGER_SIZE sizeof(ShmManagerInfo)
+#define SHM_MANAGER_SIZE sizeof(ShmManagerData)
+//sizeof(uint32_t) + sizeof(pthread_mutex_t) + sizeof(pthread_cond_t) + sizeof(uint64_t) + sizeof(TopicsInfo) + sizeof(NodesInfo)
+
 
 struct TopicInfo {
   char name_[MAX_TOPIC_NAME_LEN];
@@ -45,13 +47,49 @@ struct NodesInfo {
   NodeInfo nodes[MAX_NODE_COUNT];
 };
 
-struct ShmManagerInfo {
-  TopicsInfo topic_info;
-  NodesInfo nodes_info;
+// struct ShmManagerInfo {
+//   TopicsInfo topic_info;
+//   NodesInfo nodes_info;
+// };
+
+// 共享内存数据结构（类似 EventNotificationData）
+struct ShmManagerData {
+  uint32_t initialized_;  // 初始化标志：0x4D525332 = "MRS2" (MiniROS2)
+  pthread_mutex_t mutex_;  // 互斥锁（进程间共享）
+  pthread_cond_t cond_;    // 条件变量（进程间共享）
+  uint64_t time_;           // 时间戳
+  int32_t ref_count_;       // 引用计数（进程间共享）
+  TopicsInfo topics_info_;  // Topics 信息
+  NodesInfo nodes_info_;    // Nodes 信息
+  // char padding_[SHM_MANAGER_SIZE - sizeof(uint32_t) - sizeof(pthread_mutex_t) -
+  //               sizeof(pthread_cond_t) - sizeof(uint64_t) - sizeof(int32_t) -
+  //               sizeof(TopicsInfo) - sizeof(NodesInfo)];  // 填充到固定大小
 };
 
 class ShmManager {
  public:
+  // 单例模式：获取唯一实例指针
+  static ShmManager* Instance() {
+    creat_mutex_.lock();
+    if (instance_ == nullptr) {
+      instance_ = new ShmManager();
+      // 注册退出时清理函数
+      std::atexit(Cleanup);
+    }
+    creat_mutex_.unlock();
+    return instance_;
+  }
+
+  // 清理单例实例（在程序退出时调用）
+  static void Cleanup() {
+    creat_mutex_.lock();
+    if (instance_ != nullptr) {
+      delete instance_;
+      instance_ = nullptr;
+    }
+    creat_mutex_.unlock();
+  }
+
   // 去中心化构造函数：检查共享内存是否存在，不存在则创建
   ShmManager();
 
@@ -61,10 +99,10 @@ class ShmManager {
                    const std::string& event_name);
   void addPubTopic(const std::string& topic_name,
                    const std::string& event_name);
-  void removeSubTopic(const std::string& topic_name,
-                      const std::string& event_name);
-  void removePubTopic(const std::string& topic_name,
-                      const std::string& event_name);
+  // void removeSubTopic(const std::string& topic_name,
+  //                     const std::string& event_name);
+  // void removePubTopic(const std::string& topic_name,
+  //                     const std::string& event_name);
   void updateNodeHeartbeat();  // 更新指定id节点心跳
   bool isNodeAlive();          // 判断指定id节点是否存活
   void updateNodeAlive();
@@ -138,19 +176,25 @@ class ShmManager {
 
   void syncRegistryFromShm();
 
+  // 打开已存在的共享内存
+  void Open();
+
  private:
   void initializeRegistry_();
   // 内部方法：查找或创建 topic+event 映射
   int findOrCreateTopicEvent_(const std::string& topic_name,
                               const std::string& event_name);
 
-  void writeRegistryToShm_();  // 写入注册表到共享内存
-  void writeNodesInfo_();
-  void writeTopicsInfo_();
+  int findOrCreateTopicEventUnlocked_(const std::string& topic_name,
+                                      const std::string& event_name);
 
-  void writeRegistryToShmUnlocked_();
-  void writeNodesInfoUnlocked_();
-  void writeTopicsInfoUnlocked_();
+  // void writeRegistryToShm_();  // 写入注册表到共享内存
+  // void writeNodesInfo_();
+  // void writeTopicsInfo_();
+
+  // void writeRegistryToShmUnlocked_();
+  // void writeNodesInfoUnlocked_();
+  // void writeTopicsInfoUnlocked_();
 
   void readNodesInfo_();
   void readTopicsInfo_();
@@ -159,18 +203,40 @@ class ShmManager {
 
   // 触发事件（通过 event_id）
   void triggerEventById_(int event_id);
+
+  // 初始化互斥锁和条件变量
+  void initMutexAndCond();
+
+  // 缓存指针
+  void cachePointers();
+
   int node_id_ = -1;
-  NodesInfo nodes_;
-  TopicsInfo topics_;
-  ShmManagerInfo shm_manager_info_;
-  std::shared_ptr<ShmBase> shm_;
+  std::shared_ptr<SharedMemory> shm_;
   std::shared_ptr<EventNotificationShm>
       event_notification_shm_;  // 独立的事件通知共享内存
-  int shm_fd_ = -1;
-  //   uint64_t *time_ptr_ = nullptr;
-  //   char *data_ptr_;
+  bool is_owner_ = false;
 
-  // 进程内锁：保护 nodes_ 和 topics_ 的内存访问（非共享内存）
-  // 所有对共享内存的读写操作由 ShmBase 的锁保护
+  // 缓存的共享内存指针
+  ShmManagerData* data_ptr_ = nullptr;
+  pthread_mutex_t* mutex_ptr_ = nullptr;
+  pthread_cond_t* cond_ptr_ = nullptr;
+  uint64_t* time_ptr_ = nullptr;
+  int32_t* ref_count_ptr_ = nullptr;  // 引用计数指针
+  TopicsInfo* topics_info_ptr_ = nullptr;
+  NodesInfo* nodes_info_ptr_ = nullptr;
+
+  // 引用计数管理
+  void incrementRefCount();
+  void decrementRefCount();
+
+  // 进程内锁：保护本地 nodes_ 和 topics_ 的内存访问（非共享内存）
+  // 所有对共享内存的读写操作由共享内存的互斥锁保护
   std::mutex registry_mutex_;
+
+  // 单例模式相关
+  static ShmManager* instance_;
+  static std::mutex creat_mutex_;
 };
+
+// 宏定义：使用 SHM_MANAGER 替代 Instance()
+#define SHM_MANAGER ShmManager::Instance()

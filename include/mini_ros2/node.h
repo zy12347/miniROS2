@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <bitset>
 
 #include "mini_ros2/communication/event_manager.h"
 #include "mini_ros2/communication/shm_manager.h"
@@ -40,8 +41,7 @@ class Node {
     // 创建具体Publisher实例（假设Publisher构造函数需要话题名和QoS深度）
     auto pub = std::make_shared<Publisher<MsgT>>(full_topic, qos_depth);
 
-    // 设置 ShmManager 引用和原始 topic 名称，用于触发事件
-    pub->setShmManager(shm_manager_.get());
+    // 设置原始 topic 名称，用于触发事件
     pub->setTopicNameForEvent(full_topic);  // 传递原始 topic 名称（不含前缀）
 
     // 线程安全地加入容器（基类指针转换）
@@ -77,10 +77,10 @@ class Node {
     std::lock_guard<std::mutex> lock(node_mutex_);
     subscriptions_.push_back(sub);  // 自动转换为std::shared_ptr<SubscriberBase>
     sub_topics_.push_back(topic_name);
-    shm_manager_->addSubTopic(full_topic, event_name);
+    SHM_MANAGER->addSubTopic(full_topic, event_name);
 
     // 注册 topic+event 组合，获取 event_id（使用原始 topic 名称，不含前缀）
-    int event_id = shm_manager_->registerTopicEvent(full_topic, event_name);
+    int event_id = SHM_MANAGER->registerTopicEvent(full_topic, event_name);
     std::cout << "event_id: " << event_id << std::endl;
     // 存储订阅者索引到 event_id 的映射（用于在 spinLoop 中映射）
     if (event_id >= 0) {
@@ -113,9 +113,6 @@ class Node {
   static void signalHandler(int signum);
   std::vector<std::shared_ptr<PublisherBase>> publishers_;
   std::vector<std::shared_ptr<SubscriberBase>> subscriptions_;
-
-  std::shared_ptr<ShmManager> shm_manager_ =
-      nullptr;  // 共享内存管理器,管理节点状态,节点发现,节点注册等
 
   std::vector<std::string> pub_topics_;      // 发布的话题列表
   std::vector<std::string> sub_topics_;      // 订阅的话题列表

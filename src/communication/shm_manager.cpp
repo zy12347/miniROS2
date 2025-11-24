@@ -1,7 +1,17 @@
 #include "mini_ros2/communication/shm_manager.h"
+#include <sys/mman.h>
+#include <cstring>
+#include <ctime>
+#include <chrono>
+#include <mutex>
+
+// 静态成员变量定义（双层指针构造）
+ShmManager* ShmManager::instance_ = nullptr;
+std::mutex ShmManager::creat_mutex_;
+
 ShmManager::ShmManager() {
   std::cout << "shm_manager" << std::endl;
-  shm_ = std::make_shared<ShmBase>(SHM_MANAGER_NAME, MAX_SHM_MANGER_SIZE);
+  shm_ = std::make_shared<SharedMemory>(SHM_MANAGER_NAME, SHM_MANAGER_SIZE);
 
   // 初始化事件通知共享内存
   event_notification_shm_ = std::make_shared<EventNotificationShm>();
@@ -16,14 +26,23 @@ ShmManager::ShmManager() {
   // 检查共享内存是否已存在
   if (shm_->Exists()) {
     // 已存在，直接打开
-    shm_->Open();
+    if (!shm_->Open()) {
+      throw std::runtime_error("Failed to open shared memory");
+    }
     std::cout << "shm_manager open" << std::endl;
-    initializeRegistry_();  // 只有事先已存在共享内存信息才尝试拷贝注册表信息
+    Open();
+    // initializeRegistry_();  // 只有事先已存在共享内存信息才尝试拷贝注册表信息
   } else {
     // 不存在，创建新的
     std::cout << "shm_manager create" << std::endl;
-    shm_->Create();
-    shm_->Open();
+    if (!shm_->Create()) {
+      throw std::runtime_error("Failed to create shared memory");
+    }
+    if (!shm_->Open()) {
+      throw std::runtime_error("Failed to open shared memory");
+    }
+    is_owner_ = true;
+    initMutexAndCond();
   }
 };
 
@@ -38,506 +57,960 @@ ShmManager::~ShmManager() {
 
   // 清理注册表共享内存
   if (shm_) {
-    // ShmBase 内部使用 SharedMemory，其析构函数会自动清理
+    // 减少引用计数
+    decrementRefCount();
+    
+    // 打印当前引用计数
+    if (ref_count_ptr_ && mutex_ptr_) {
+      int ret = pthread_mutex_lock(mutex_ptr_);
+      if (ret == 0) {
+        std::cout << "ShmManager destructor: node exiting, current ref_count = " 
+                  << *ref_count_ptr_ << std::endl;
+        pthread_mutex_unlock(mutex_ptr_);
+      }
+    }
+    
+    // 如果引用计数为0，清除共享内存
+    if (ref_count_ptr_ && *ref_count_ptr_ == 0) {
+      std::cout << "ShmManager destructor: last node, cleaning up shared memory "
+                << SHM_MANAGER_NAME << std::endl;
+      shm_->Unlink();
+    }
+    shm_->Close();
     shm_.reset();
   }
 }
 
-void ShmManager::readNodesInfo_() {
-  char node_data[NODE_INFO_SIZE];
-  memset(node_data, 0,
-         NODE_INFO_SIZE);  // 初始化为0
-  try {
-    std::cout << "read node info_" << std::endl;
-    shm_->Read(node_data, NODE_INFO_SIZE, TOPIC_INFO_SIZE);
-    // NodesInfo *nodes = static_cast<NodesInfo *>(node_data);
-    std::string jsonStr(node_data);
-    std::cout << jsonStr << std::endl;
-    // 检查是否为空或无效JSON
-    if (jsonStr.empty() ||
-        jsonStr.find_first_not_of(" \t\n\r") == std::string::npos) {
-      // 空数据，初始化默认值
-      nodes_.nodes_count = 0;
-      nodes_.alive_node_count = 0;
-      return;
-    }
-    JsonValue json = JsonValue::deserialize(jsonStr);
-    nodes_.nodes_count = json["node_count"].asInt();
-    nodes_.alive_node_count = json["alive_node_count"].asInt();
+// void ShmManager::readNodesInfo_() {
+//   if (nodes_info_ptr_ == nullptr) {
+//     throw std::runtime_error("Shared memory not initialized");
+//   }
 
-    for (int i = 0; i < nodes_.nodes_count; i++) {
-      nodes_.nodes[i].node_id = json["nodes"][i]["node_id"].asInt();
-      nodes_.nodes[i].pid = json["nodes"][i]["pid"].asInt();
-      nodes_.nodes[i].pub_topic_count =
-          json["nodes"][i]["pub_topic_count"].asInt();
-      nodes_.nodes[i].sub_topic_count =
-          json["nodes"][i]["sub_topic_count"].asInt();
-      std::strcpy(nodes_.nodes[i].node_name,
-                  json["nodes"][i]["node_name"].asString().c_str());
-      nodes_.nodes[i].is_alive = json["nodes"][i]["is_alive"].asBool();
-      nodes_.nodes[i].last_heartbeat =
-          json["nodes"][i]["last_heartbeat"].asInt();
-    }
-  } catch (const std::exception& e) {
-    // JSON解析失败，初始化默认值
-    std::cout << "Failed to parse JSON from shared memory: " << e.what()
-              << std::endl;
-    nodes_.nodes_count = 0;
-    nodes_.alive_node_count = 0;
+//   if (mutex_ptr_ == nullptr) {
+//     throw std::runtime_error("Mutex not initialized");
+//   }
+
+//   // 获取锁
+//   int ret = pthread_mutex_lock(mutex_ptr_);
+//   if (ret != 0) {
+//     throw std::runtime_error("Failed to lock mutex: " +
+//                              std::string(strerror(ret)));
+//   }
+
+//   try {
+//     std::cout << "read node info_" << std::endl;
+//     // 直接从共享内存读取
+//     nodes_.nodes_count = nodes_info_ptr_->nodes_count;
+//     nodes_.alive_node_count = nodes_info_ptr_->alive_node_count;
+//     for (int i = 0; i < nodes_.nodes_count && i < MAX_NODE_COUNT; i++) {
+//       nodes_.nodes[i] = nodes_info_ptr_->nodes[i];
+//     }
+//   } catch (...) {
+//     pthread_mutex_unlock(mutex_ptr_);
+//     throw;
+//   }
+
+//   // 释放锁
+//   ret = pthread_mutex_unlock(mutex_ptr_);
+//   if (ret != 0) {
+//     throw std::runtime_error("Failed to unlock mutex: " +
+//                              std::string(strerror(ret)));
+//   }
+// }
+
+// void ShmManager::readTopicsInfo() {
+//   std::lock_guard<std::mutex> lock(registry_mutex_);
+//   readTopicsInfo_();
+// }
+
+// void ShmManager::readTopicsInfoUnlocked() {
+//   if (topics_info_ptr_ == nullptr) {
+//     throw std::runtime_error("Shared memory not initialized");
+//   }
+
+//   if (mutex_ptr_ == nullptr) {
+//     throw std::runtime_error("Mutex not initialized");
+//   }
+
+//   // 检查是否已持有锁（这里假设调用者已经持有锁，但为了安全起见，我们仍然需要锁）
+//   // 注意：这个方法名是 Unlocked，但实际上我们仍然需要锁来保证数据一致性
+//   // 如果调用者已经持有锁，这里会死锁，所以这个方法应该被重新设计
+//   // 暂时保留锁，但建议重构
+//   int ret = pthread_mutex_lock(mutex_ptr_);
+//   if (ret != 0) {
+//     throw std::runtime_error("Failed to lock mutex: " +
+//                              std::string(strerror(ret)));
+//   }
+
+//   try {
+//     // 直接从共享内存读取
+//     topics_.topics_count = topics_info_ptr_->topics_count;
+//     for (int i = 0; i < topics_.topics_count && i < MAX_TOPICS_PER_NODE; i++) {
+//       topics_.topics[i] = topics_info_ptr_->topics[i];
+//     }
+//   } catch (...) {
+//     pthread_mutex_unlock(mutex_ptr_);
+//     throw;
+//   }
+
+//   // 释放锁
+//   ret = pthread_mutex_unlock(mutex_ptr_);
+//   if (ret != 0) {
+//     throw std::runtime_error("Failed to unlock mutex: " +
+//                              std::string(strerror(ret)));
+//   }
+// }
+
+// void ShmManager::readTopicsInfo_() {
+//   if (topics_info_ptr_ == nullptr) {
+//     throw std::runtime_error("Shared memory not initialized");
+//   }
+
+//   if (mutex_ptr_ == nullptr) {
+//     throw std::runtime_error("Mutex not initialized");
+//   }
+
+//   // 获取锁
+//   int ret = pthread_mutex_lock(mutex_ptr_);
+//   if (ret != 0) {
+//     throw std::runtime_error("Failed to lock mutex: " +
+//                              std::string(strerror(ret)));
+//   }
+
+//   try {
+//     // 直接从共享内存读取
+//     topics_.topics_count = topics_info_ptr_->topics_count;
+//     for (int i = 0; i < topics_.topics_count && i < MAX_TOPICS_PER_NODE; i++) {
+//       topics_.topics[i] = topics_info_ptr_->topics[i];
+//     }
+//   } catch (...) {
+//     pthread_mutex_unlock(mutex_ptr_);
+//     throw;
+//   }
+
+//   // 释放锁
+//   ret = pthread_mutex_unlock(mutex_ptr_);
+//   if (ret != 0) {
+//     throw std::runtime_error("Failed to unlock mutex: " +
+//                              std::string(strerror(ret)));
+//   }
+// }
+// void ShmManager::initializeRegistry_() {
+//   // 初始化注册表直接从共享内存读取数据
+//   std::cout << "initializeRegistry" << std::endl;
+//   readTopicsInfo_();
+//   readNodesInfo_();
+// }
+
+void ShmManager::Open() {
+  if (!shm_->Open()) {
+    throw std::runtime_error("Failed to open shared memory");
+  }
+
+  ShmManagerData* head =
+      static_cast<ShmManagerData*>(shm_->Data());
+  if (!head) {
+    throw std::runtime_error(
+        "Failed to get shared memory pointer");
+  }
+
+  // 检查是否已初始化
+  if (is_owner_ || head->initialized_ != 0x4D525332) {  // "MRS2"
+    initMutexAndCond();
+  } else {
+    cachePointers();
+    // 增加引用计数（非创建者）
+    incrementRefCount();
   }
 }
 
-void ShmManager::readTopicsInfo() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  readTopicsInfo_();
-}
-void ShmManager::readTopicsInfoUnlocked() {
-  char topic_data[TOPIC_INFO_SIZE];
-  memset(topic_data, 0,
-         TOPIC_INFO_SIZE);  // 初始化为0
-  // std::cout << "readTopicsInfo" << std::endl;
-  try {
-    // std::cout << "shm_->Read" << std::endl;
-    shm_->ReadUnlocked(topic_data, TOPIC_INFO_SIZE);
-    // std::cout << "shm_->Read done" << std::endl;
-    // TopicsInfo *topics = static_cast<TopicsInfo *>(topic_data);
-    std::string jsonStr(topic_data);
-    // std::cout << "jsonStr: " << jsonStr << std::endl;
-    // 检查是否为空或无效JSON
-    if (jsonStr.empty() ||
-        jsonStr.find_first_not_of(" \t\n\r") == std::string::npos) {
-      // 空数据，初始化默认值
-      // std::cout << "empty" << std::endl;
-      topics_.topics_count = 0;
-      return;
-    }
-    // std::cout << "not empty" << std::endl;
-    JsonValue json = JsonValue::deserialize(jsonStr);
-    // std::cout << "json: " << json.serialize() << std::endl;
-    topics_.topics_count = json["topic_count"].asInt();
-    // event_flag_ 已移除，不再从注册表读取（从 EventNotificationShm 读取）
-    for (int i = 0; i < topics_.topics_count; i++) {
-      topics_.topics[i].event_id_ = json["topics"][i]["topic_id"].asInt();
-      std::strcpy(topics_.topics[i].name_,
-                  json["topics"][i]["name"].asString().c_str());
-    }
-  } catch (const std::exception& e) {
-    // JSON解析失败，初始化默认值
-    std::cout << "Failed to parse JSON from shared memory: " << e.what()
-              << std::endl;
-    topics_.topics_count = 0;
+void ShmManager::initMutexAndCond() {
+  ShmManagerData* head =
+      static_cast<ShmManagerData*>(shm_->Data());
+  if (!head) {
+    throw std::runtime_error(
+        "Failed to get shared memory pointer");
   }
-}
-void ShmManager::readTopicsInfo_() {
-  char topic_data[TOPIC_INFO_SIZE];
-  memset(topic_data, 0,
-         TOPIC_INFO_SIZE);  // 初始化为0
-  // std::cout << "readTopicsInfo" << std::endl;
-  try {
-    // std::cout << "shm_->Read" << std::endl;
-    shm_->Read(topic_data, TOPIC_INFO_SIZE);
-    // std::cout << "shm_->Read done" << std::endl;
-    // TopicsInfo *topics = static_cast<TopicsInfo *>(topic_data);
-    std::string jsonStr(topic_data);
-    // std::cout << "jsonStr: " << jsonStr << std::endl;
-    // 检查是否为空或无效JSON
-    if (jsonStr.empty() ||
-        jsonStr.find_first_not_of(" \t\n\r") == std::string::npos) {
-      // 空数据，初始化默认值
-      // std::cout << "empty" << std::endl;
-      topics_.topics_count = 0;
-      return;
-    }
-    // std::cout << "not empty" << std::endl;
-    JsonValue json = JsonValue::deserialize(jsonStr);
-    // std::cout << "json: " << json.serialize() << std::endl;
-    topics_.topics_count = json["topic_count"].asInt();
-    // event_flag_ 已移除，不再从注册表读取（从 EventNotificationShm 读取）
-    for (int i = 0; i < topics_.topics_count; i++) {
-      topics_.topics[i].event_id_ = json["topics"][i]["topic_id"].asInt();
-      std::strcpy(topics_.topics[i].name_,
-                  json["topics"][i]["name"].asString().c_str());
-    }
-  } catch (const std::exception& e) {
-    // JSON解析失败，初始化默认值
-    std::cout << "Failed to parse JSON from shared memory: " << e.what()
-              << std::endl;
-    topics_.topics_count = 0;
+
+  // 初始化互斥锁
+  pthread_mutexattr_t mutex_attr;
+  int ret = pthread_mutexattr_init(&mutex_attr);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to init mutex attr: " +
+                             std::string(strerror(ret)));
   }
-}
-void ShmManager::initializeRegistry_() {
-  // 初始化注册表直接从共享内存读取数据
-  std::cout << "initializeRegistry" << std::endl;
-  readTopicsInfo_();
-  readNodesInfo_();
+
+  ret = pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
+  if (ret != 0) {
+    pthread_mutexattr_destroy(&mutex_attr);
+    throw std::runtime_error("Failed to set mutex shared: " +
+                             std::string(strerror(ret)));
+  }
+
+  ret = pthread_mutex_init(&head->mutex_, &mutex_attr);
+  if (ret != 0) {
+    pthread_mutexattr_destroy(&mutex_attr);
+    throw std::runtime_error("Failed to init mutex: " +
+                             std::string(strerror(ret)));
+  }
+  pthread_mutexattr_destroy(&mutex_attr);
+
+  // 初始化条件变量
+  pthread_condattr_t cond_attr;
+  ret = pthread_condattr_init(&cond_attr);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to init cond attr: " +
+                             std::string(strerror(ret)));
+  }
+
+  ret = pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
+  if (ret != 0) {
+    pthread_condattr_destroy(&cond_attr);
+    throw std::runtime_error("Failed to set cond shared: " +
+                             std::string(strerror(ret)));
+  }
+
+  ret = pthread_cond_init(&head->cond_, &cond_attr);
+  if (ret != 0) {
+    pthread_condattr_destroy(&cond_attr);
+    throw std::runtime_error("Failed to init cond: " +
+                             std::string(strerror(ret)));
+  }
+  pthread_condattr_destroy(&cond_attr);
+
+  // 设置初始化标志
+  head->initialized_ = 0x4D525332;  // "MRS2"
+  head->time_ = 0;
+  head->ref_count_ = 1;  // 创建者初始化为1
+  // 初始化数据结构
+  head->topics_info_.topics_count = 0;
+  head->nodes_info_.nodes_count = 0;
+  head->nodes_info_.alive_node_count = 0;
+
+  cachePointers();
 }
 
-void ShmManager::syncRegistryFromShm() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  std::cout << "syncRegistry " << std::endl;
-  readTopicsInfo_();
-  std::cout << "read node info" << std::endl;
-  readNodesInfo_();
+void ShmManager::cachePointers() {
+  ShmManagerData* head =
+      static_cast<ShmManagerData*>(shm_->Data());
+  if (!head) {
+    throw std::runtime_error(
+        "Failed to get shared memory pointer");
+  }
+
+  data_ptr_ = head;
+  mutex_ptr_ = &head->mutex_;
+  cond_ptr_ = &head->cond_;
+  time_ptr_ = &head->time_;
+  ref_count_ptr_ = &head->ref_count_;
+  topics_info_ptr_ = &head->topics_info_;
+  nodes_info_ptr_ = &head->nodes_info_;
 }
+
+// void ShmManager::syncRegistryFromShm() {
+//   std::lock_guard<std::mutex> lock(registry_mutex_);
+//   std::cout << "syncRegistry " << std::endl;
+//   readTopicsInfo_();
+//   std::cout << "read node info" << std::endl;
+//   readNodesInfo_();
+// }
 void ShmManager::updateNodeHeartbeat() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  nodes_.nodes[node_id_].last_heartbeat = time(nullptr);
-  // writeRegistryToShm_();
-  writeNodesInfo_();
-  // TBD心跳更新会频繁写入共享内存，后面优化为修改而非覆写
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      nodes_info_ptr_->nodes[node_id_].last_heartbeat = time(nullptr);
+      // 更新时间戳
+      *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 };
 
 bool ShmManager::isNodeAlive() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  bool is_alive = nodes_.nodes[node_id_].is_alive;
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  bool is_alive = false;
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      is_alive = nodes_info_ptr_->nodes[node_id_].is_alive;
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
   return is_alive;
 };
 
 void ShmManager::addNode(const NodeInfo& node_info) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  nodes_.nodes[node_id_] = node_info;
-  nodes_.nodes_count++;
-  nodes_.alive_node_count++;
-  // writeRegistryToShm_();
-  writeNodesInfo_();
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      nodes_info_ptr_->nodes[node_id_] = node_info;
+      nodes_info_ptr_->nodes_count++;
+      nodes_info_ptr_->alive_node_count++;
+      // 更新时间戳
+      *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 }
 
 void ShmManager::updateNodeInfo(const NodeInfo& node_info) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  nodes_.nodes[node_id_] = node_info;
-  // writeRegistryToShm_();
-  writeNodesInfo_();
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      nodes_info_ptr_->nodes[node_id_] = node_info;
+      // 更新时间戳
+      *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 };
 void ShmManager::removeNode() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  //   nodes.erase(nodes.begin() + node_id);
-  nodes_.nodes[node_id_].is_alive = false;
-  nodes_.alive_node_count--;
-  nodes_.nodes_count--;
-  writeNodesInfo_();
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      nodes_info_ptr_->nodes[node_id_].is_alive = false;
+      nodes_info_ptr_->alive_node_count--;
+      nodes_info_ptr_->nodes_count--;
+      // 更新时间戳
+      *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
   triggerEventById_(MAX_TOPICS_PER_NODE - 1);
 }
 
 void ShmManager::getNodeInfo(NodeInfo& node_info) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  node_info = nodes_.nodes[node_id_];
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      node_info = nodes_info_ptr_->nodes[node_id_];
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 }
 // TBD 这里的MAX_NODE_COUNT需要从配置文件中读取
 int ShmManager::getNextNodeId() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  for (int i = 0; i < MAX_NODE_COUNT; i++) {
-    if (!nodes_.nodes[i].is_alive) {
-      return i;
-    }
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
   }
-  return -1;
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  int next_id = -1;
+  try {
+  for (int i = 0; i < MAX_NODE_COUNT; i++) {
+      if (!nodes_info_ptr_->nodes[i].is_alive) {
+        next_id = i;
+        break;
+      }
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  return next_id;
 }
 
 int ShmManager::getAliveNodeCount() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  int count = nodes_.alive_node_count;
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  int count = 0;
+  try {
+    count = nodes_info_ptr_->alive_node_count;
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
   return count;
 }
+
 int ShmManager::getNodeCount() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  int count = nodes_.nodes_count;
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  int count = 0;
+  try {
+    count = nodes_info_ptr_->nodes_count;
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
   return count;
 }
 
-// void ShmManager::writeShmHead() {}
-// 写入方法：使用进程内锁保护数据访问，使用 ShmBase 锁保护共享内存写入
-void ShmManager::writeNodesInfo_() {
-  // 1. 加进程内锁保护 nodes_ 的内存访问
-  // std::lock_guard<std::mutex> lock(registry_mutex_);
-  JsonValue json;
-  json["node_count"] = nodes_.nodes_count;
-  json["alive_node_count"] = nodes_.alive_node_count;
-  json["nodes"] = JsonArray(nodes_.nodes_count);
-  for (int i = 0; i < nodes_.nodes_count; i++) {
-    json["nodes"][i]["node_id"] = nodes_.nodes[i].node_id;
-    json["nodes"][i]["pid"] = nodes_.nodes[i].pid;
-    json["nodes"][i]["pub_topic_count"] = nodes_.nodes[i].pub_topic_count;
-    json["nodes"][i]["sub_topic_count"] = nodes_.nodes[i].sub_topic_count;
-    json["nodes"][i]["node_name"] = std::string(nodes_.nodes[i].node_name);
-    json["nodes"][i]["is_alive"] = nodes_.nodes[i].is_alive;
-    json["nodes"][i]["last_heartbeat"] = nodes_.nodes[i].last_heartbeat;
-  }
-  std::string json_str = json.serialize();
-  // 2. 锁在 lock_guard 析构时自动释放
-  // 3. 调用 Write() 写入共享内存（Write() 内部会用自己的锁保护）
-  std::cout << json_str.c_str();
-  shm_->Write(json_str.c_str(), json_str.size(), TOPIC_INFO_SIZE);
-}
-
-// void shmManager::updateEventFlag_(int event_id) {
-//   std::lock_guard<std::mutex> lock(registry_mutex_);
-//   topics_.event_flag_ |= (1 << event_id);
-//   writeTopicsInfo_();
+// // writeNodesInfo_ 已废弃，现在直接操作共享内存指针
+// void ShmManager::writeNodesInfo_() {
+//   // 此方法已废弃，所有操作都直接通过指针进行
 // }
-// 写入方法：使用进程内锁保护数据访问，使用 ShmBase 锁保护共享内存写入
-// 注意：event_flag_ 已移至独立的 EventNotificationShm，不再写入注册表
-void ShmManager::writeTopicsInfo_() {
-  // 1. 加进程内锁保护 topics_ 的内存访问
-  // std::lock_guard<std::mutex> lock(registry_mutex_);
-  JsonValue json;
-  json["topic_count"] = topics_.topics_count;
-  // event_flag_ 已移除，不再序列化
-  json["topics"] = JsonArray(topics_.topics_count);
-  for (int i = 0; i < topics_.topics_count; i++) {
-    json["topics"][i]["topic_id"] = topics_.topics[i].event_id_;
-    json["topics"][i]["name"] = std::string(topics_.topics[i].name_);
-  }
-  std::string json_str = json.serialize();
-  // std::cout << "writeTopicsInfo: " << json_str << std::endl;
-  // 2. 锁在 lock_guard 析构时自动释放
-  // 3. 调用 Write() 写入共享内存（Write() 内部会用自己的锁保护）
-  shm_->Write(json_str.c_str(), json_str.size());
-}
 
-void ShmManager::writeTopicsInfoUnlocked_() {
-  // 1. 加进程内锁保护 topics_ 的内存访问
-  // std::lock_guard<std::mutex> lock(registry_mutex_);
-  JsonValue json;
-  json["topic_count"] = topics_.topics_count;
-  // event_flag_ 已移除，不再序列化
-  json["topics"] = JsonArray(topics_.topics_count);
-  for (int i = 0; i < topics_.topics_count; i++) {
-    json["topics"][i]["topic_id"] = topics_.topics[i].event_id_;
-    json["topics"][i]["name"] = std::string(topics_.topics[i].name_);
-  }
-  std::string json_str = json.serialize();
-  // std::cout << "writeTopicsInfo: " << json_str << std::endl;
-  // 2. 锁在 lock_guard 析构时自动释放
-  // 3. 调用 Write() 写入共享内存（Write() 内部会用自己的锁保护）
-  shm_->WriteUnlocked(json_str.c_str(), json_str.size());
-}
+// // writeTopicsInfo_ 已废弃，现在直接操作共享内存指针
+// void ShmManager::writeTopicsInfo_() {
+//   // 此方法已废弃，所有操作都直接通过指针进行
+// }
 
-void ShmManager::writeNodesInfoUnlocked_() {
-  JsonValue json;
-  json["node_count"] = nodes_.nodes_count;
-  json["alive_node_count"] = nodes_.alive_node_count;
-  json["nodes"] = JsonArray(nodes_.nodes_count);
-  for (int i = 0; i < nodes_.nodes_count; i++) {
-    json["nodes"][i]["node_id"] = nodes_.nodes[i].node_id;
-    json["nodes"][i]["pid"] = nodes_.nodes[i].pid;
-    json["nodes"][i]["pub_topic_count"] = nodes_.nodes[i].pub_topic_count;
-    json["nodes"][i]["sub_topic_count"] = nodes_.nodes[i].sub_topic_count;
-    json["nodes"][i]["node_name"] = std::string(nodes_.nodes[i].node_name);
-    json["nodes"][i]["is_alive"] = nodes_.nodes[i].is_alive;
-    // json["nodes"][i]["pub_topics"] =
-    // JsonArray(nodes_.nodes[i].pub_topic_count);
-    // json["nodes"][i]["sub_topics"] =
-    // JsonArray(nodes_.nodes[i].sub_topic_count); for (int j = 0; j <
-    // nodes_.nodes[i].pub_topic_count; j++) {
-    //   json["nodes"][i]["pub_topics"][j] =
-    //       std::string(nodes_.nodes[i].pub_topics[j]);
-    // }
-    // for (int j = 0; j < nodes_.nodes[i].sub_topic_count; j++) {
-    //   json["nodes"][i]["sub_topics"][j] =
-    //       std::string(nodes_.nodes[i].sub_topics[j]);
-    // }
-    json["nodes"][i]["last_heartbeat"] = nodes_.nodes[i].last_heartbeat;
-  }
-  std::string json_str = json.serialize();
-  std::cout << "writeNodesInfo: " << json_str << std::endl;
-  shm_->WriteUnlocked(json_str.c_str(), json_str.size());
-}
+// void ShmManager::writeTopicsInfoUnlocked_() {
+//   // 此方法已废弃，所有操作都直接通过指针进行
+// }
 
-void ShmManager::writeRegistryToShm_() {
-  // writeShmHead();
-  // writeTopicsInfo() 和 writeNodesInfo() 内部已经有锁保护
-  writeTopicsInfo_();
-  writeNodesInfo_();
-}
+// void ShmManager::writeNodesInfoUnlocked_() {
+//   // 此方法已废弃，所有操作都直接通过指针进行
+// }
 
-void ShmManager::writeRegistryToShmUnlocked_() {
-  writeTopicsInfoUnlocked_();
-  writeNodesInfoUnlocked_();
-}
+// void ShmManager::writeRegistryToShm_() {
+//   // 此方法已废弃，所有操作都直接通过指针进行
+// }
+
+// void ShmManager::writeRegistryToShmUnlocked_() {
+//   // 此方法已废弃，所有操作都直接通过指针进行
+// }
 
 void ShmManager::addSubTopic(const std::string& topic_name,
                              const std::string& event_name) {
-  // 使用进程内锁保护 nodes_ 和 topics_ 的访问
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  if (nodes_.nodes[node_id_].sub_topic_count < MAX_TOPICS_PER_NODE) {
-    // std::strcpy(nodes_.nodes[node_id_]
-    //                 .sub_topics[nodes_.nodes[node_id_].sub_topic_count],
-    //             topic_name.c_str());
-    nodes_.nodes[node_id_].sub_topic_count++;
+  if (nodes_info_ptr_ == nullptr || topics_info_ptr_ == nullptr ||
+      mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
   }
-  // 查找或创建 topic event，findOrCreateTopicEvent_ 内部会处理 topics_ 的更新
-  int event_id = findOrCreateTopicEvent_(topic_name, event_name);
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      if (nodes_info_ptr_->nodes[node_id_].sub_topic_count <
+          MAX_TOPICS_PER_NODE) {
+        nodes_info_ptr_->nodes[node_id_].sub_topic_count++;
+      }
+    }
+    // 查找或创建 topic event
+    int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
   if (event_id < 0) {
     std::cerr << "Failed to create topic event" << std::endl;
   }
-  // writeRegistryToShm_();
-  writeNodesInfo_();
-  // 锁释放后，调用 writeTopicsInfo() 和 writeNodesInfo() 写入共享内存
-  // 它们内部会重新加锁读取数据并写入
+    // 更新时间戳
+    *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::system_clock::now().time_since_epoch())
+                     .count();
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 }
 
 void ShmManager::addPubTopic(const std::string& topic_name,
                              const std::string& event_name) {
-  // 使用进程内锁保护 nodes_ 和 topics_ 的访问
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  std::string full_name = topic_name + "_" + event_name;
-  if (nodes_.nodes[node_id_].pub_topic_count < MAX_TOPICS_PER_NODE) {
-    // std::strcpy(nodes_.nodes[node_id_]
-    //                 .pub_topics[nodes_.nodes[node_id_].pub_topic_count],
-    //             full_name.c_str());
-    nodes_.nodes[node_id_].pub_topic_count++;
+  if (nodes_info_ptr_ == nullptr || topics_info_ptr_ == nullptr ||
+      mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
   }
-  // 查找或创建 topic event，findOrCreateTopicEvent_ 内部会处理 topics_ 的更新
-  int event_id = findOrCreateTopicEvent_(topic_name, event_name);
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    std::string full_name = topic_name + "_" + event_name;
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      if (nodes_info_ptr_->nodes[node_id_].pub_topic_count <
+          MAX_TOPICS_PER_NODE) {
+        nodes_info_ptr_->nodes[node_id_].pub_topic_count++;
+      }
+    }
+    // 查找或创建 topic event
+    int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
   if (event_id < 0) {
     std::cerr << "Failed to create topic event" << std::endl;
-  }
+    } else {
+      // 添加到 topics 列表
+      if (topics_info_ptr_->topics_count < MAX_TOPICS_PER_NODE) {
   TopicInfo topic_info;
   topic_info.event_id_ = event_id;
-  // std::string full_name = topic_name + "_" + event_name;
   std::strcpy(topic_info.name_, full_name.c_str());
-  topics_.topics[topics_.topics_count] = topic_info;
-  topics_.topics_count++;
+        topics_info_ptr_->topics[topics_info_ptr_->topics_count] = topic_info;
+        topics_info_ptr_->topics_count++;
   std::cout << "event_id: " << event_id << std::endl;
-  writeRegistryToShm_();
-  // 锁释放后，调用 writeTopicsInfo() 和 writeNodesInfo() 写入共享内存
-  // 它们内部会重新加锁读取数据并写入
+      }
+    }
+    // 更新时间戳
+    *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::system_clock::now().time_since_epoch())
+                     .count();
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 }
 
-void ShmManager::removeSubTopic(const std::string& topic_name,
-                                const std::string& event_name) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  // for (int i = 0; i < nodes_.nodes[node_id_].sub_topic_count; i++) {
-  //   if (nodes_.nodes[node_id_].sub_topics[i] == topic_name) {
-  //     // 移除topic，将后面的元素前移
-  //     // for (int j = i; j < nodes_.nodes[node_id_].sub_topic_count - 1; j++)
-  //     {
-  //     //   std::strcpy(nodes_.nodes[node_id_].sub_topics[j],
-  //     //               nodes_.nodes[node_id_].sub_topics[j + 1]);
-  //     // }
-  //     nodes_.nodes[node_id_].sub_topic_count--;
-  //     writeRegistryToShm_();
-  //     break;
-  //   }
-  // }
-}
+// void ShmManager::removeSubTopic(const std::string& topic_name,
+//                                 const std::string& event_name) {
+//   std::lock_guard<std::mutex> lock(registry_mutex_);
+// }
 
-void ShmManager::removePubTopic(const std::string& topic_name,
-                                const std::string& event_name) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  // for (int i = 0; i < nodes_.nodes[node_id_].pub_topic_count; i++) {
-  //   if (nodes_.nodes[node_id_].pub_topics[i] == topic_name) {
-  //     // 移除topic，将后面的元素前移
-  //     // for (int j = i; j < nodes_.nodes[node_id_].pub_topic_count - 1; j++)
-  //     {
-  //     //   std::strcpy(nodes_.nodes[node_id_].pub_topics[j],
-  //     //               nodes_.nodes[node_id_].pub_topics[j + 1]);
-  //     // }
-  //     nodes_.nodes[node_id_].pub_topic_count--;
-  //     writeRegistryToShm_();
-  //     break;
-  //   }
-  // }
-}
+// void ShmManager::removePubTopic(const std::string& topic_name,
+//                                 const std::string& event_name) {
+//   std::lock_guard<std::mutex> lock(registry_mutex_);
+//   // for (int i = 0; i < nodes_.nodes[node_id_].pub_topic_count; i++) {
+//   //   if (nodes_.nodes[node_id_].pub_topics[i] == topic_name) {
+//   //     // 移除topic，将后面的元素前移
+//   //     // for (int j = i; j < nodes_.nodes[node_id_].pub_topic_count - 1; j++)
+//   //     {
+//   //     //   std::strcpy(nodes_.nodes[node_id_].pub_topics[j],
+//   //     //               nodes_.nodes[node_id_].pub_topics[j + 1]);
+//   //     // }
+//   //     nodes_.nodes[node_id_].pub_topic_count--;
+//   //     writeRegistryToShm_();
+//   //     break;
+//   //   }
+//   // }
+// }
 
 void ShmManager::updateNodeAlive() {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  nodes_.nodes[node_id_].is_alive = true;
-  // writeRegistryToShm_();
-  writeNodesInfo_();
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      nodes_info_ptr_->nodes[node_id_].is_alive = true;
+      // 更新时间戳
+      *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 }
+
 void ShmManager::updateNodeName(const std::string& node_name) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  std::strcpy(nodes_.nodes[node_id_].node_name, node_name.c_str());
-  // writeRegistryToShm_();
-  writeNodesInfo_();
+  if (nodes_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+      std::strcpy(nodes_info_ptr_->nodes[node_id_].node_name,
+                  node_name.c_str());
+      // 更新时间戳
+      *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 }
 
 void ShmManager::printRegistry() {
-  // char data[MAX_SHM_MANGER_SIZE];
-  // memset(data, 0, MAX_SHM_MANGER_SIZE); // 初始化为0
-  // shm_->Read(data, MAX_SHM_MANGER_SIZE);
-  // std::string jsonStr(data);
-  // std::cout << jsonStr << std::endl;
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  // char topic_data[TOPIC_INFO_SIZE];
-  // memset(topic_data, 0, TOPIC_INFO_SIZE);
-  // shm_->Read(topic_data, TOPIC_INFO_SIZE);
-  // std::string jsonStr(topic_data);
-  // std::cout << "jsonStr: " << jsonStr << std::endl;
-  // JsonValue json = JsonValue::deserialize(jsonStr);
-  // std::cout << "topics_count: " << json["topic_count"].asInt() << std::endl;
-  // std::cout << "event_flag_: " << json["event_flag_"].asInt() << std::endl;
-  for (int i = 0; i < topics_.topics_count; i++) {
-    std::cout << "name: " << topics_.topics->name_
-              << " event_id: " << topics_.topics->event_id_ << std::endl;
+  if (topics_info_ptr_ == nullptr || nodes_info_ptr_ == nullptr ||
+      mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
   }
-  for (int i = 0; i < nodes_.nodes_count; i++) {
-    std::cout << "id: " << nodes_.nodes[i].node_id
-              << " name: " << nodes_.nodes[i].node_name
-              << " pid: " << nodes_.nodes[i].pid
-              << " pub_count: " << nodes_.nodes[i].pub_topic_count
-              << " sub_count: " << nodes_.nodes[i].sub_topic_count << std::endl;
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
   }
-  // std::cout << "printRegistry" << std::endl;
+
+  try {
+    for (int i = 0; i < topics_info_ptr_->topics_count; i++) {
+      std::cout << "name: " << topics_info_ptr_->topics[i].name_
+                << " event_id: " << topics_info_ptr_->topics[i].event_id_
+                << std::endl;
+    }
+    for (int i = 0; i < nodes_info_ptr_->nodes_count; i++) {
+      std::cout << "id: " << nodes_info_ptr_->nodes[i].node_id
+                << " name: " << nodes_info_ptr_->nodes[i].node_name
+                << " pid: " << nodes_info_ptr_->nodes[i].pid
+                << " pub_count: " << nodes_info_ptr_->nodes[i].pub_topic_count
+                << " sub_count: " << nodes_info_ptr_->nodes[i].sub_topic_count
+                << std::endl;
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
 }
 
 // 查找或创建 topic+event 映射，返回 event_id（位索引）
-int ShmManager::findOrCreateTopicEvent_(const std::string& topic_name,
+// 注意：此方法假设调用者已经持有 mutex_ptr_ 锁
+int ShmManager::findOrCreateTopicEventUnlocked_(const std::string& topic_name,
                                         const std::string& event_name) {
+  if (topics_info_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
   std::string full_name = topic_name + "_" + event_name;
 
   // 查找是否已存在
-  for (int i = 0; i < topics_.topics_count; i++) {
-    if (std::string(topics_.topics[i].name_) == full_name) {
-      return topics_.topics[i].event_id_;
+  for (int i = 0; i < topics_info_ptr_->topics_count; i++) {
+    if (std::string(topics_info_ptr_->topics[i].name_) == full_name) {
+      return topics_info_ptr_->topics[i].event_id_;
     }
   }
 
   // 不存在，创建新的映射
-  if (topics_.topics_count >= MAX_TOPICS_PER_NODE) {
+  if (topics_info_ptr_->topics_count >= MAX_TOPICS_PER_NODE) {
     std::cerr << "Maximum topic count reached" << std::endl;
     return -1;
   }
 
   // 分配新的 event_id（位索引）
-  int new_event_id = topics_.topics_count + 1;
-  topics_.topics[new_event_id].event_id_ = new_event_id;
-  std::strcpy(topics_.topics[new_event_id].name_, full_name.c_str());
-  topics_.topics_count++;
+  int new_event_id = topics_info_ptr_->topics_count + 1;
+  topics_info_ptr_->topics[topics_info_ptr_->topics_count].event_id_ =
+      new_event_id;
+  std::strcpy(topics_info_ptr_->topics[topics_info_ptr_->topics_count].name_,
+              full_name.c_str());
+  topics_info_ptr_->topics_count++;
 
   return new_event_id;
+}
+
+// 查找或创建 topic+event 映射，返回 event_id（位索引）
+int ShmManager::findOrCreateTopicEvent_(const std::string& topic_name,
+                                        const std::string& event_name) {
+  if (topics_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  int event_id = -1;
+  try {
+    event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  return event_id;
 }
 
 // 注册 topic+event 组合，返回分配的 event_id（位索引）
 int ShmManager::registerTopicEvent(const std::string& topic_name,
                                    const std::string& event_name) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  int event_id = findOrCreateTopicEvent_(topic_name, event_name);
-  if (event_id >= 0) {
-    writeTopicsInfo_();  // 更新到共享内存
+  if (topics_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
   }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  int event_id = -1;
+  try {
+    event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+  if (event_id >= 0) {
+      // 更新时间戳
+      *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
   return event_id;
 }
 
-// 查找 topic+event 对应的 event_id，如果不存在返回 -1
+// 查找 topic+event 对应的 event_id，如果不存在返回 -1（公共方法）
+int ShmManager::getTopicEventId(const std::string& topic_name,
+                                const std::string& event_name) {
+  return getTopicEventId_(topic_name, event_name);
+}
+
+// 查找 topic+event 对应的 event_id，如果不存在返回 -1（私有方法）
 int ShmManager::getTopicEventId_(const std::string& topic_name,
                                  const std::string& event_name) {
-  // std::lock_guard<std::mutex> lock(registry_mutex_);
-  std::string full_name = topic_name + "_" + event_name;
-  for (int i = 0; i < topics_.topics_count; i++) {
-    if (std::string(topics_.topics[i].name_) == full_name) {
-      int event_id = topics_.topics[i].event_id_;
-      return event_id;
-    }
+  if (topics_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
   }
-  return -1;
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  int event_id = -1;
+  try {
+  std::string full_name = topic_name + "_" + event_name;
+    for (int i = 0; i < topics_info_ptr_->topics_count; i++) {
+      if (std::string(topics_info_ptr_->topics[i].name_) == full_name) {
+        event_id = topics_info_ptr_->topics[i].event_id_;
+        break;
+      }
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  return event_id;
 }
 
 // 触发事件：设置对应的位并通知条件变量
 void ShmManager::triggerEvent(const std::string& topic_name,
                               const std::string& event_name) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
   // std::cout << "triggerEvent: " << topic_name << " " << event_name <<
   // std::endl;
   int event_id = getTopicEventId_(topic_name, event_name);
@@ -580,12 +1053,75 @@ void ShmManager::clearAllTriggerEvents() {
 
 bool ShmManager::isTopicExist(const std::string& topic_name,
                               const std::string& event_name) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  std::string full_name = topic_name + "_" + event_name;
-  for (int i = 0; i < topics_.topics_count; i++) {
-    if (std::string(topics_.topics[i].name_) == full_name) {
-      return true;
-    }
+  if (topics_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    throw std::runtime_error("Shared memory not initialized");
   }
-  return false;
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  bool exists = false;
+  try {
+  std::string full_name = topic_name + "_" + event_name;
+    for (int i = 0; i < topics_info_ptr_->topics_count; i++) {
+      if (std::string(topics_info_ptr_->topics[i].name_) == full_name) {
+        exists = true;
+        break;
+      }
+    }
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  return exists;
+}
+
+void ShmManager::incrementRefCount() {
+  if (ref_count_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    return;  // 未初始化
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    return;  // 获取锁失败，忽略错误
+  }
+
+  (*ref_count_ptr_)++;
+  std::cout << "ShmManager ref_count incremented to: " << *ref_count_ptr_ << std::endl;
+
+  // 释放锁
+  pthread_mutex_unlock(mutex_ptr_);
+}
+
+void ShmManager::decrementRefCount() {
+  if (ref_count_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    return;  // 未初始化
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    return;  // 获取锁失败，忽略错误
+  }
+
+  if (*ref_count_ptr_ > 0) {
+    (*ref_count_ptr_)--;
+    std::cout << "ShmManager ref_count decremented to: " << *ref_count_ptr_ << std::endl;
+  }
+
+  // 释放锁
+  pthread_mutex_unlock(mutex_ptr_);
 }

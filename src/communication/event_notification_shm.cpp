@@ -14,18 +14,26 @@ EventNotificationShm::EventNotificationShm() {
 EventNotificationShm::~EventNotificationShm() {
   // 清理共享内存
   if (shm_) {
-    if (is_owner_ && shm_->IsOwner()) {
-      std::cout << "EventNotificationShm destructor: cleaning up shared memory "
-                << EVENT_NOTIFICATION_SHM_NAME << std::endl;
-      // SharedMemory 的析构函数会自动调用 Unlink() 如果 is_owner_ 为 true
-      // 但我们需要先关闭，然后让 SharedMemory 的析构函数处理 Unlink
-      shm_->Close();
-      // 注意：不要在这里调用 Unlink()，让 SharedMemory 的析构函数处理
-    } else {
-      // 不是创建者，只关闭
-      shm_->Close();
+    // 减少引用计数
+    decrementRefCount();
+    
+    // 打印当前引用计数
+    if (ref_count_ptr_ && mutex_ptr_) {
+      int ret = pthread_mutex_lock(mutex_ptr_);
+      if (ret == 0) {
+        std::cout << "EventNotificationShm destructor: node exiting, current ref_count = " 
+                  << *ref_count_ptr_ << std::endl;
+        pthread_mutex_unlock(mutex_ptr_);
+      }
     }
-    // SharedMemory 的析构函数会自动处理 Unlink（如果是 owner）
+    
+    // 如果引用计数为0，清除共享内存
+    if (ref_count_ptr_ && *ref_count_ptr_ == 0) {
+      std::cout << "EventNotificationShm destructor: last node, cleaning up shared memory "
+                << EVENT_NOTIFICATION_SHM_NAME << std::endl;
+      shm_->Unlink();
+    }
+    shm_->Close();
     shm_.reset();
   }
 }
@@ -59,6 +67,8 @@ void EventNotificationShm::Open() {
     initMutexAndCond();
   } else {
     cachePointers();
+    // 增加引用计数（非创建者）
+    incrementRefCount();
   }
 }
 
@@ -120,6 +130,7 @@ void EventNotificationShm::initMutexAndCond() {
   head->initialized_ = 0x4556454E;  // "EVEN"
   head->event_flag_.reset();
   head->time_ = 0;
+  head->ref_count_ = 1;  // 创建者初始化为1
 
   cachePointers();
 }
@@ -136,6 +147,7 @@ void EventNotificationShm::cachePointers() {
   mutex_ptr_ = &head->mutex_;
   cond_ptr_ = &head->cond_;
   event_flag_ptr_ = &head->event_flag_;
+  ref_count_ptr_ = &head->ref_count_;
 }
 
 void EventNotificationShm::triggerEvent(int event_id) {
@@ -371,4 +383,42 @@ void EventNotificationShm::unlock() {
     throw std::runtime_error("Failed to unlock mutex: " +
                              std::string(strerror(ret)));
   }
+}
+
+void EventNotificationShm::incrementRefCount() {
+  if (ref_count_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    return;  // 未初始化
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    return;  // 获取锁失败，忽略错误
+  }
+
+  (*ref_count_ptr_)++;
+  std::cout << "EventNotificationShm ref_count incremented to: " << *ref_count_ptr_ << std::endl;
+
+  // 释放锁
+  pthread_mutex_unlock(mutex_ptr_);
+}
+
+void EventNotificationShm::decrementRefCount() {
+  if (ref_count_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+    return;  // 未初始化
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    return;  // 获取锁失败，忽略错误
+  }
+
+  if (*ref_count_ptr_ > 0) {
+    (*ref_count_ptr_)--;
+    std::cout << "EventNotificationShm ref_count decremented to: " << *ref_count_ptr_ << std::endl;
+  }
+
+  // 释放锁
+  pthread_mutex_unlock(mutex_ptr_);
 }

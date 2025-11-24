@@ -10,12 +10,13 @@
 #include "time.h"
 
 int main() {
+  std::cout << "SHM_MANAGER_SIZE: " << SHM_MANAGER_SIZE << std::endl;
   pthread_setname_np(pthread_self(), "main1");
   Node node("test_node2");
   auto pub = node.createPublisher<JsonValue>("test");
   auto pub1 = node.createPublisher<JsonValue>("test");
   // node.printRegistry();
-  node.createTimer(1000, [&pub, &pub1]() {
+  node.createTimer(5000, [&pub, &pub1]() {
     JsonValue json;
     json["name"] = "John";
     json["age"] = 30;

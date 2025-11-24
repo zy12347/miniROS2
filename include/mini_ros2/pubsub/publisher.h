@@ -48,14 +48,14 @@ class Publisher : public PublisherBase {
     // std::cout << data_str << std::endl;
     // shm_->Open();
     if(!SHM_MANAGER->isTopicExist(topic_, event)) {
-      std::cout << "addPubTopic: " << topic_ << " " << event << std::endl;
+      LOGD("addPubTopic: " << topic_ << " " << event);
       SHM_MANAGER->addPubTopic(topic_, event);
     }
     shm_->Write(buffer, msg_serialize_size);
     // 触发事件：通知 ShmManager 更新 event_flag_ 并唤醒等待的订阅者
     if (!topic_name_for_event_.empty()) {
-      std::cout << "triggerEvent: " << topic_name_for_event_ << " " << event
-      << " message: " << data.serialize() << std::endl;
+      LOGD("triggerEvent: " << topic_name_for_event_ << " " << event
+           << " message: " << data.serialize());
       SHM_MANAGER->triggerEvent(topic_name_for_event_, event);
     }
 

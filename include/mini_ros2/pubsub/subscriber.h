@@ -9,6 +9,7 @@
 #include <string>
 
 #include "mini_ros2/communication/shm_base.h"
+#include "mini_ros2/logger.h"
 #include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
 
@@ -109,7 +110,7 @@ class Subscriber : public SubscriberBase {
   void execute(std::shared_ptr<MsgT> msg_ptr) {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_(*msg_ptr);
-    std::cout << "test" << std::endl;
+    LOGD("test");
   }
 
   std::function<void()> createTaskFromSubEvent() {
@@ -127,11 +128,11 @@ class Subscriber : public SubscriberBase {
         std::string shm_name = topic_ + "_" + event_;
         shm_ = std::make_shared<ShmBase>(shm_name);
         shm_->Open();
-        std::cout << "create shm_name: " << shm_name << " event: " << event_ <<" for subscriber"<< std::endl;
+        LOGD("create shm_name: " << shm_name << " event: " << event_ << " for subscriber");
         // link("/proc/self/fd/" + std::to_string(efd), eventfd_path_.c_str());
       }
       size_t msg_serialize_size = shm_->getDataSize();
-      std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
+      LOGD("msg_serialize_size: " << msg_serialize_size);
       uint8_t* data = new uint8_t[msg_serialize_size];
       shm_->ReadUnlocked(data, msg_serialize_size);
       Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);

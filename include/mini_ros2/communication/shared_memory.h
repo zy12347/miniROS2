@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "mini_ros2/logger.h"
 class SharedMemory {
 public:
   SharedMemory() = default;
@@ -14,7 +15,7 @@ public:
     // POSIX标准要求共享内存名称以'/'开头且不包含其他'/'且共享内存要小于10MB
     if (name_.empty() || name_[0] != '/' || size_ == 0 ||
         size_ > 10 * 1024 * 1024) {
-      std::cout << name_ << " " << size_ << std::endl;
+      LOGD(name_ << " " << size_);
       throw std::invalid_argument("Invalid name or size for SharedMemory");
     }
     //初始化元信息不执行系统调用,延迟资源获取
@@ -23,12 +24,12 @@ public:
       : name_(name), fd_(-1), data_(nullptr), is_owner_(false) {
     // POSIX标准要求共享内存名称以'/'开头且不包含其他'/'且共享内存要小于10MB
     if (name_.empty() || name_[0] != '/') {
-      std::cout << name_ << std::endl;
+      LOGD(name_);
       throw std::invalid_argument("Not exist");
     }
     if (!Exists()) {
       // throw std::invalid_argument("Not exist");
-      std::cout << name_ << " not exist" << std::endl;
+      LOGD(name_ << " not exist");
       return;
     }
     // 1. 打开已存在的POSIX共享内存

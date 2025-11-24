@@ -1,4 +1,5 @@
 #include "mini_ros2/communication/shm_base.h"
+#include "mini_ros2/logger.h"
 
 void ShmBase::Create() {
   if (!shm_.Create()) {
@@ -225,11 +226,11 @@ ShmBase::~ShmBase() {
     // 检查是否需要 Unlink
     int ret = pthread_mutex_lock(mutex_ptr_);
     if (ret == 0) {
-      std::cout << "ShmBase destructor: ref_count = " << *ref_count_ptr_ << std::endl;
+      LOGD("ShmBase destructor: ref_count = " << *ref_count_ptr_);
       if (*ref_count_ptr_ == 0) {
         should_unlink = true;
-        std::cout << "ShmBase destructor: last reference, will unlink shared memory "
-                  << name_ << std::endl;
+        LOGD("ShmBase destructor: last reference, will unlink shared memory "
+             << name_);
       }
       pthread_mutex_unlock(mutex_ptr_);
     }
@@ -256,7 +257,7 @@ void ShmBase::incrementRefCount() {
   }
 
   (*ref_count_ptr_)++;
-  std::cout << "ShmBase ref_count incremented to: " << *ref_count_ptr_ << std::endl;
+  LOGD("ShmBase ref_count incremented to: " << *ref_count_ptr_);
 
   // 释放锁
   pthread_mutex_unlock(mutex_ptr_);
@@ -275,7 +276,7 @@ void ShmBase::decrementRefCount() {
 
   if (*ref_count_ptr_ > 0) {
     (*ref_count_ptr_)--;
-    std::cout << "ShmBase ref_count decremented to: " << *ref_count_ptr_ << std::endl;
+    LOGD("ShmBase ref_count decremented to: " << *ref_count_ptr_);
   }
 
   // 释放锁

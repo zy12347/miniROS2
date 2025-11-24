@@ -1,4 +1,5 @@
 #include "mini_ros2/communication/shm_manager.h"
+#include "mini_ros2/logger.h"
 #include <sys/mman.h>
 #include <cstring>
 #include <ctime>
@@ -10,17 +11,17 @@ ShmManager* ShmManager::instance_ = nullptr;
 std::mutex ShmManager::creat_mutex_;
 
 ShmManager::ShmManager() {
-  std::cout << "shm_manager" << std::endl;
+  LOGD("shm_manager");
   shm_ = std::make_shared<SharedMemory>(SHM_MANAGER_NAME, SHM_MANAGER_SIZE);
 
   // 初始化事件通知共享内存
   event_notification_shm_ = std::make_shared<EventNotificationShm>();
   if (event_notification_shm_->Exists()) {
     event_notification_shm_->Open();
-    std::cout << "event_notification_shm open" << std::endl;
+    LOGD("event_notification_shm open");
   } else {
     event_notification_shm_->Create();
-    std::cout << "event_notification_shm create" << std::endl;
+    LOGD("event_notification_shm create");
   }
 
   // 检查共享内存是否已存在
@@ -29,12 +30,12 @@ ShmManager::ShmManager() {
     if (!shm_->Open()) {
       throw std::runtime_error("Failed to open shared memory");
     }
-    std::cout << "shm_manager open" << std::endl;
+    LOGD("shm_manager open");
     Open();
     // initializeRegistry_();  // 只有事先已存在共享内存信息才尝试拷贝注册表信息
   } else {
     // 不存在，创建新的
-    std::cout << "shm_manager create" << std::endl;
+    LOGD("shm_manager create");
     if (!shm_->Create()) {
       throw std::runtime_error("Failed to create shared memory");
     }
@@ -47,7 +48,7 @@ ShmManager::ShmManager() {
 };
 
 ShmManager::~ShmManager() {
-  std::cout << "ShmManager destructor: cleaning up shared memory" << std::endl;
+  LOGD("ShmManager destructor: cleaning up shared memory");
 
   // 清理事件通知共享内存
   if (event_notification_shm_) {
@@ -64,16 +65,16 @@ ShmManager::~ShmManager() {
     if (ref_count_ptr_ && mutex_ptr_) {
       int ret = pthread_mutex_lock(mutex_ptr_);
       if (ret == 0) {
-        std::cout << "ShmManager destructor: node exiting, current ref_count = " 
-                  << *ref_count_ptr_ << std::endl;
+        LOGD("ShmManager destructor: node exiting, current ref_count = " 
+             << *ref_count_ptr_);
         pthread_mutex_unlock(mutex_ptr_);
       }
     }
     
     // 如果引用计数为0，清除共享内存
     if (ref_count_ptr_ && *ref_count_ptr_ == 0) {
-      std::cout << "ShmManager destructor: last node, cleaning up shared memory "
-                << SHM_MANAGER_NAME << std::endl;
+      LOGD("ShmManager destructor: last node, cleaning up shared memory "
+           << SHM_MANAGER_NAME);
       shm_->Unlink();
     }
     shm_->Close();
@@ -691,7 +692,7 @@ void ShmManager::addPubTopic(const std::string& topic_name,
   }
 
   try {
-    std::string full_name = topic_name + "_" + event_name;
+  std::string full_name = topic_name + "_" + event_name;
     if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
       if (nodes_info_ptr_->nodes[node_id_].pub_topic_count <
           MAX_TOPICS_PER_NODE) {
@@ -710,7 +711,7 @@ void ShmManager::addPubTopic(const std::string& topic_name,
   std::strcpy(topic_info.name_, full_name.c_str());
         topics_info_ptr_->topics[topics_info_ptr_->topics_count] = topic_info;
         topics_info_ptr_->topics_count++;
-  std::cout << "event_id: " << event_id << std::endl;
+        LOGD("event_id: " << event_id);
       }
     }
     // 更新时间戳
@@ -835,17 +836,15 @@ void ShmManager::printRegistry() {
 
   try {
     for (int i = 0; i < topics_info_ptr_->topics_count; i++) {
-      std::cout << "name: " << topics_info_ptr_->topics[i].name_
-                << " event_id: " << topics_info_ptr_->topics[i].event_id_
-                << std::endl;
+      LOGD("name: " << topics_info_ptr_->topics[i].name_
+           << " event_id: " << topics_info_ptr_->topics[i].event_id_);
     }
     for (int i = 0; i < nodes_info_ptr_->nodes_count; i++) {
-      std::cout << "id: " << nodes_info_ptr_->nodes[i].node_id
-                << " name: " << nodes_info_ptr_->nodes[i].node_name
-                << " pid: " << nodes_info_ptr_->nodes[i].pid
-                << " pub_count: " << nodes_info_ptr_->nodes[i].pub_topic_count
-                << " sub_count: " << nodes_info_ptr_->nodes[i].sub_topic_count
-                << std::endl;
+      LOGD("id: " << nodes_info_ptr_->nodes[i].node_id
+           << " name: " << nodes_info_ptr_->nodes[i].node_name
+           << " pid: " << nodes_info_ptr_->nodes[i].pid
+           << " pub_count: " << nodes_info_ptr_->nodes[i].pub_topic_count
+           << " sub_count: " << nodes_info_ptr_->nodes[i].sub_topic_count);
     }
   } catch (...) {
     pthread_mutex_unlock(mutex_ptr_);
@@ -1100,7 +1099,7 @@ void ShmManager::incrementRefCount() {
   }
 
   (*ref_count_ptr_)++;
-  std::cout << "ShmManager ref_count incremented to: " << *ref_count_ptr_ << std::endl;
+  LOGD("ShmManager ref_count incremented to: " << *ref_count_ptr_);
 
   // 释放锁
   pthread_mutex_unlock(mutex_ptr_);
@@ -1119,7 +1118,7 @@ void ShmManager::decrementRefCount() {
 
   if (*ref_count_ptr_ > 0) {
     (*ref_count_ptr_)--;
-    std::cout << "ShmManager ref_count decremented to: " << *ref_count_ptr_ << std::endl;
+    LOGD("ShmManager ref_count decremented to: " << *ref_count_ptr_);
   }
 
   // 释放锁

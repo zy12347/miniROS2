@@ -1,4 +1,5 @@
 #include "mini_ros2/communication/event_notification_shm.h"
+#include "mini_ros2/logger.h"
 
 #include <sys/mman.h>
 
@@ -21,16 +22,16 @@ EventNotificationShm::~EventNotificationShm() {
     if (ref_count_ptr_ && mutex_ptr_) {
       int ret = pthread_mutex_lock(mutex_ptr_);
       if (ret == 0) {
-        std::cout << "EventNotificationShm destructor: node exiting, current ref_count = " 
-                  << *ref_count_ptr_ << std::endl;
+        LOGD("EventNotificationShm destructor: node exiting, current ref_count = " 
+             << *ref_count_ptr_);
         pthread_mutex_unlock(mutex_ptr_);
       }
     }
     
     // 如果引用计数为0，清除共享内存
     if (ref_count_ptr_ && *ref_count_ptr_ == 0) {
-      std::cout << "EventNotificationShm destructor: last node, cleaning up shared memory "
-                << EVENT_NOTIFICATION_SHM_NAME << std::endl;
+      LOGD("EventNotificationShm destructor: last node, cleaning up shared memory "
+           << EVENT_NOTIFICATION_SHM_NAME);
       shm_->Unlink();
     }
     shm_->Close();
@@ -397,7 +398,7 @@ void EventNotificationShm::incrementRefCount() {
   }
 
   (*ref_count_ptr_)++;
-  std::cout << "EventNotificationShm ref_count incremented to: " << *ref_count_ptr_ << std::endl;
+  LOGD("EventNotificationShm ref_count incremented to: " << *ref_count_ptr_);
 
   // 释放锁
   pthread_mutex_unlock(mutex_ptr_);
@@ -416,7 +417,7 @@ void EventNotificationShm::decrementRefCount() {
 
   if (*ref_count_ptr_ > 0) {
     (*ref_count_ptr_)--;
-    std::cout << "EventNotificationShm ref_count decremented to: " << *ref_count_ptr_ << std::endl;
+    LOGD("EventNotificationShm ref_count decremented to: " << *ref_count_ptr_);
   }
 
   // 释放锁

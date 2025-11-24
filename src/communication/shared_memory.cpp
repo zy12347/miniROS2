@@ -4,10 +4,8 @@ SharedMemory::~SharedMemory() {
   if (data_ != MAP_FAILED && data_ != nullptr) {
     Close();
   }
-  if (is_owner_) {
-    std::cout << "SharedMemory destructor: " << name_ << std::endl;
-    Unlink();
-  }
+  // 不再使用 is_owner_ 来判断是否 Unlink
+  // Unlink 操作由 ShmBase 根据 ref_count_ 来决定
 }
 
 bool SharedMemory::Create() {
@@ -83,9 +81,8 @@ bool SharedMemory::Close() {
 }
 
 bool SharedMemory::Unlink() {
-  if (!is_owner_) {
-    return false;  // 不是创建者，不能删除
-  }
+  // 不再检查 is_owner_，直接尝试 Unlink
+  // 调用者应该确保在 ref_count_ 为 0 时才调用
   if (shm_unlink(name_.c_str()) == -1) {
     return false;  // 删除失败
   }

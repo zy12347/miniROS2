@@ -22,9 +22,14 @@ public:
   SharedMemory(std::string name) //仅有名字没有大小,常用于订阅已存在的共享内存
       : name_(name), fd_(-1), data_(nullptr), is_owner_(false) {
     // POSIX标准要求共享内存名称以'/'开头且不包含其他'/'且共享内存要小于10MB
-    if (name_.empty() || name_[0] != '/' || !Exists()) {
+    if (name_.empty() || name_[0] != '/') {
       std::cout << name_ << std::endl;
       throw std::invalid_argument("Not exist");
+    }
+    if (!Exists()) {
+      // throw std::invalid_argument("Not exist");
+      std::cout << name_ << " not exist" << std::endl;
+      return;
     }
     // 1. 打开已存在的POSIX共享内存
     int shm_fd = shm_open(name_.c_str(), O_RDONLY, 0666); // O_RDONLY：只读打开

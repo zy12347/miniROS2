@@ -50,16 +50,7 @@ class Subscriber : public SubscriberBase {
   void subscribe(const std::string& event,
                  std::function<void(const MsgT& data)> callback) {
     setCallback(callback);
-    if (shm_ == nullptr) {
-      // 订阅时创建共享内存
-      std::string shm_name = topic_ + "_" + event;
-      shm_ = std::make_shared<ShmBase>(shm_name);
-      // link("/proc/self/fd/" + std::to_string(efd), eventfd_path_.c_str());
-    }
-    // if (eventfd_path_.empty() || event_fd_ == -1) {
-    //   initEventFd();
-    // }
-    shm_->Open();
+    event_ = event;
   }
 
   void setCallback(std::function<void(const MsgT& data)> callback) {
@@ -131,6 +122,14 @@ class Subscriber : public SubscriberBase {
  private:
   void getMessage() {
     try {
+      if (shm_ == nullptr) {
+        // 订阅时创建共享内存
+        std::string shm_name = topic_ + "_" + event_;
+        shm_ = std::make_shared<ShmBase>(shm_name);
+        shm_->Open();
+        std::cout << "create shm_name: " << shm_name << " event: " << event_ <<" for subscriber"<< std::endl;
+        // link("/proc/self/fd/" + std::to_string(efd), eventfd_path_.c_str());
+      }
       size_t msg_serialize_size = shm_->getDataSize();
       std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
       uint8_t* data = new uint8_t[msg_serialize_size];
@@ -143,6 +142,7 @@ class Subscriber : public SubscriberBase {
   }
   std::mutex mutex_;
   std::string topic_;
+  std::string event_;
   std::shared_ptr<ShmBase> shm_;
   std::function<void(const MsgT& data)> callback_;
   int depth_;

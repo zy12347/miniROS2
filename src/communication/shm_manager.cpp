@@ -731,6 +731,54 @@ void ShmManager::addPubTopic(const std::string& topic_name,
   }
 }
 
+void ShmManager::addSyncTopic(const std::string& topic_name, const std::string& event_name) {
+    if (nodes_info_ptr_ == nullptr || topics_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
+        throw std::runtime_error("Shared memory not initialized");
+    }
+
+    // 获取锁
+    int ret = pthread_mutex_lock(mutex_ptr_);
+    if (ret != 0) {
+        throw std::runtime_error("Failed to lock mutex: " + std::string(strerror(ret)));
+    }
+
+    try {
+        std::string full_name = topic_name + "_" + event_name;
+        if (node_id_ >= 0 && node_id_ < MAX_NODE_COUNT) {
+            if (nodes_info_ptr_->nodes[node_id_].sync_topic_count < MAX_TOPICS_PER_NODE) {
+                nodes_info_ptr_->nodes[node_id_].sync_topic_count++;
+            }
+        }
+        // 查找或创建 topic event
+        int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+        if (event_id < 0) {
+            std::cerr << "Failed to create topic event" << std::endl;
+        } else {
+            // 添加到 topics 列表
+            if (topics_info_ptr_->topics_count < MAX_TOPICS_PER_NODE) {
+                TopicInfo topic_info;
+                topic_info.event_id_ = event_id;
+                std::strcpy(topic_info.name_, full_name.c_str());
+                topics_info_ptr_->topics[topics_info_ptr_->topics_count] = topic_info;
+                topics_info_ptr_->topics_count++;
+                LOGD("event_id: " << event_id);
+            }
+        }
+        // 更新时间戳
+        *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    } catch (...) {
+        pthread_mutex_unlock(mutex_ptr_);
+        throw;
+    }
+
+    // 释放锁
+    ret = pthread_mutex_unlock(mutex_ptr_);
+    if (ret != 0) {
+        throw std::runtime_error("Failed to unlock mutex: " + std::string(strerror(ret)));
+    }
+}
 // void ShmManager::removeSubTopic(const std::string& topic_name,
 //                                 const std::string& event_name) {
 //   std::lock_guard<std::mutex> lock(registry_mutex_);
@@ -1005,6 +1053,14 @@ int ShmManager::getTopicEventId_(const std::string& topic_name,
   }
 
   return event_id;
+}
+
+void ShmManager::triggerEventResponse(const std::string& topic_name,
+                                      const std::string& event_name) {
+  int event_id = getTopicEventId_(topic_name, event_name);
+  if (event_id >= 0) {
+    event_notification_shm_->triggerEventResponse(event_id);
+  }
 }
 
 // 触发事件：设置对应的位并通知条件变量

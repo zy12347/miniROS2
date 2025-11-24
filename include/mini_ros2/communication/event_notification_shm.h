@@ -18,8 +18,12 @@ struct EventNotificationData {
       initialized_;  // 初始化标志：0x4556454E = "EVEN" (Event Notification)
   pthread_mutex_t mutex_;  // 互斥锁（进程间共享）
   pthread_cond_t cond_;    // 条件变量（进程间共享）
+  // pthread_cond_t cond_req_;    // 条件变量（进程间共享）
+  pthread_cond_t cond_res_;    // 条件变量（进程间共享）
   // uint32_t event_flag_;    // 事件标志位（第i位表示第i个事件）
   std::bitset<EVENT_MAX_COUNT> event_flag_;
+  // std::bitset<EVENT_MAX_COUNT> event_flag_req_;
+  std::bitset<EVENT_MAX_COUNT> event_flag_res_;
   uint64_t time_;  // 时间戳
   int32_t ref_count_;  // 引用计数（进程间共享）
   // char padding_[EVENT_NOTIFICATION_SHM_SIZE - sizeof(uint32_t) -
@@ -48,6 +52,10 @@ class EventNotificationShm {
 
   // 等待事件（带超时），返回当前的事件标志位
   std::bitset<EVENT_MAX_COUNT> waitForEvent(uint64_t timeout_ms);
+
+  void triggerEventResponse(int event_id);
+
+  std::bitset<EVENT_MAX_COUNT> waitForEventResponse(uint64_t timeout_ms);
 
   // 读取并清除事件标志位（原子操作）
   std::bitset<EVENT_MAX_COUNT> readAndClearEvents();
@@ -80,7 +88,11 @@ class EventNotificationShm {
   EventNotificationData* data_ptr_ = nullptr;
   pthread_mutex_t* mutex_ptr_ = nullptr;
   pthread_cond_t* cond_ptr_ = nullptr;
+  // pthread_cond_t* cond_req_ptr_ = nullptr;
+  pthread_cond_t* cond_res_ptr_ = nullptr;
   std::bitset<EVENT_MAX_COUNT>* event_flag_ptr_ = nullptr;
+  // std::bitset<EVENT_MAX_COUNT>* event_flag_req_ptr_ = nullptr;
+  std::bitset<EVENT_MAX_COUNT>* event_flag_res_ptr_ = nullptr;
   int32_t* ref_count_ptr_ = nullptr;  // 引用计数指针
   bool is_owner_ = false;
 

@@ -130,6 +130,8 @@ void EventNotificationShm::initMutexAndCond() {
   // 设置初始化标志
   head->initialized_ = 0x4556454E;  // "EVEN"
   head->event_flag_.reset();
+  // head->event_flag_req_.reset();
+  head->event_flag_res_.reset();
   head->time_ = 0;
   head->ref_count_ = 1;  // 创建者初始化为1
 
@@ -147,7 +149,11 @@ void EventNotificationShm::cachePointers() {
   data_ptr_ = head;
   mutex_ptr_ = &head->mutex_;
   cond_ptr_ = &head->cond_;
+  // cond_req_ptr_ = &head->cond_req_;
+  cond_res_ptr_ = &head->cond_res_;
   event_flag_ptr_ = &head->event_flag_;
+  // event_flag_req_ptr_ = &head->event_flag_req_;
+  event_flag_res_ptr_ = &head->event_flag_res_;
   ref_count_ptr_ = &head->ref_count_;
 }
 
@@ -189,7 +195,6 @@ void EventNotificationShm::triggerEvent(int event_id) {
                              std::string(strerror(ret)));
   }
 }
-
 std::bitset<EVENT_MAX_COUNT> EventNotificationShm::waitForEvent(
     uint64_t timeout_ms) {
   if (mutex_ptr_ == nullptr) {
@@ -241,6 +246,98 @@ std::bitset<EVENT_MAX_COUNT> EventNotificationShm::waitForEvent(
   }
 
   return event_flag;
+}
+
+void EventNotificationShm::triggerEventResponse(int event_id) {
+  if (event_id < 0 || event_id >= EVENT_MAX_COUNT) {
+    return;  // 无效的 event_id
+  }
+
+  if (mutex_ptr_ == nullptr) {
+    throw std::runtime_error(
+        "Event notification shared memory not initialized");
+  }
+
+  // 获取锁
+  int ret = pthread_mutex_lock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to lock mutex: " +
+                             std::string(strerror(ret)));
+  }
+
+  try {
+    // 设置对应的位
+    event_flag_res_ptr_->set(event_id);
+    // 更新时间戳
+    data_ptr_->time_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+    // 通知所有等待的线程
+    pthread_cond_broadcast(cond_res_ptr_);
+  } catch (...) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw;
+  }
+
+  // 释放锁
+  ret = pthread_mutex_unlock(mutex_ptr_);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to unlock mutex: " +
+                             std::string(strerror(ret)));
+  }
+}
+
+std::bitset<EVENT_MAX_COUNT> EventNotificationShm::waitForEventResponse(
+  uint64_t timeout_ms) {
+if (mutex_ptr_ == nullptr) {
+  throw std::runtime_error(
+      "Event notification shared memory not initialized");
+}
+
+// 获取锁
+int ret = pthread_mutex_lock(mutex_ptr_);
+if (ret != 0) {
+  throw std::runtime_error("Failed to lock mutex: " +
+                           std::string(strerror(ret)));
+}
+
+std::bitset<EVENT_MAX_COUNT> event_flag;
+try {
+  // 等待条件变量（带超时）
+  struct timespec abstime;
+  clock_gettime(CLOCK_REALTIME, &abstime);
+  abstime.tv_sec += timeout_ms / 1000;
+  abstime.tv_nsec += (timeout_ms % 1000) * 1000000;
+  if (abstime.tv_nsec >= 1000000000) {
+    abstime.tv_sec += 1;
+    abstime.tv_nsec -= 1000000000;
+  }
+
+  ret = pthread_cond_timedwait(cond_res_ptr_, mutex_ptr_, &abstime);
+  if (ret == ETIMEDOUT) {
+    // 超时，返回当前的事件标志位（可能为0）
+    event_flag = *event_flag_res_ptr_;
+  } else if (ret != 0) {
+    pthread_mutex_unlock(mutex_ptr_);
+    throw std::runtime_error("Failed to wait cond: " +
+                             std::string(strerror(ret)));
+  } else {
+    // 被唤醒，读取事件标志位
+    event_flag = *event_flag_res_ptr_;
+  }
+} catch (...) {
+  pthread_mutex_unlock(mutex_ptr_);
+  throw;
+}
+
+// 释放锁
+ret = pthread_mutex_unlock(mutex_ptr_);
+if (ret != 0) {
+  throw std::runtime_error("Failed to unlock mutex: " +
+                           std::string(strerror(ret)));
+}
+
+return event_flag;
 }
 
 std::bitset<EVENT_MAX_COUNT> EventNotificationShm::readAndClearEvents() {

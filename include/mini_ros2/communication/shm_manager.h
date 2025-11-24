@@ -36,6 +36,7 @@ struct NodeInfo {
   int pid;
   int pub_topic_count;
   int sub_topic_count;
+  int sync_topic_count;
   bool is_alive;
   int last_heartbeat;
   char node_name[MAX_NODE_NAME_LEN];
@@ -99,6 +100,8 @@ class ShmManager {
                    const std::string& event_name);
   void addPubTopic(const std::string& topic_name,
                    const std::string& event_name);
+  void addSyncTopic(const std::string& topic_name,
+                   const std::string& event_name);
   // void removeSubTopic(const std::string& topic_name,
   //                     const std::string& event_name);
   // void removePubTopic(const std::string& topic_name,
@@ -127,6 +130,9 @@ class ShmManager {
     return event_notification_shm_->waitForEvent(timeout_ms);
   }
 
+  std::bitset<EVENT_MAX_COUNT> waitForEventResponse(uint64_t timeout_ms) {
+    return event_notification_shm_->waitForEventResponse(timeout_ms);
+  }
   // 读取事件标志位（不清除）
   std::bitset<EVENT_MAX_COUNT> getTriggerEvent() {
     return event_notification_shm_->readEvents();
@@ -152,6 +158,9 @@ class ShmManager {
   // 触发事件：设置对应的位并通知条件变量
   void triggerEvent(const std::string& topic_name,
                     const std::string& event_name);
+
+  void triggerEventResponse(const std::string& topic_name,
+                            const std::string& event_name);
 
   // 清除事件标志位
   void clearTriggerEvent(int event_id);

@@ -67,8 +67,6 @@ class Publisher : public PublisherBase {
   void setTopicNameForEvent(const std::string& topic_name) {
     topic_name_for_event_ = topic_name;
   }
-  int asyncService(const std::string& topic, const std::string& event,
-                   const MsgT& data, int depth = 10);
   static int publish(const std::string& topic, const std::string& event,
                      const MsgT& data, int depth = 10) {
     size_t msg_serialize_size;
@@ -86,8 +84,6 @@ class Publisher : public PublisherBase {
   }
   static int32_t postEvent(const std::string& topic, const std::string& event,
                            const MsgT& data, int depth = 10);
-  static int32_t syncService(const std::string& topic, const std::string& event,
-                             const MsgT& data, int depth = 10);
   void setHostId(int host) { host_id_ = host; };
 
   std::string getTopicName() const { return topic_; }

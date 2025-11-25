@@ -20,6 +20,16 @@ add_executable(test_service test_service.cpp)
 target_link_libraries(test_service 
   PRIVATE mini_ros2_lib 
 )
+
+add_executable(test_service_server test_service_server.cpp)
+target_link_libraries(test_service_server 
+  PRIVATE mini_ros2_lib 
+)
+
+add_executable(test_service_client test_service_client.cpp)
+target_link_libraries(test_service_client 
+  PRIVATE mini_ros2_lib 
+)
 add_executable(test_pubsub test_pubsub.cpp)
 target_link_libraries(test_pubsub 
   PRIVATE mini_ros2_lib 

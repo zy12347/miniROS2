@@ -14,6 +14,7 @@ struct ShmHead {
   pthread_mutex_t mutex_;
   pthread_cond_t cond_;
   int32_t ref_count_;
+  size_t data_size_;
   uint64_t time_;
 };
 
@@ -27,14 +28,14 @@ class ShmBase {
   ShmBase(const std::string& name, size_t size)
       : name_(name),
         offset_(sizeof(ShmHead)),
-        data_size_(size),
-        total_size_(offset_ + data_size_),
+        data_max_size_(size),
+        total_size_(offset_ + data_max_size_),
         shm_(name, total_size_) {  // 信号量初始值为1
   }
   ShmBase(const std::string& name) : name_(name), shm_(name) {
     total_size_ = shm_.Size();
     offset_ = sizeof(ShmHead);
-    data_size_ = total_size_ - offset_;
+    data_max_size_ = total_size_ - offset_;
   }
   ~ShmBase();
 
@@ -78,7 +79,17 @@ class ShmBase {
 
   size_t getSize() const { return total_size_; }
 
-  size_t getDataSize() const { return data_size_; }
+  size_t getDataMaxSize() const { return data_max_size_; }
+
+  size_t getDataSize() const {
+    if (data_size_ptr_ == nullptr) {
+      return 0;
+    }
+    pthread_mutex_lock(mutex_ptr_);
+    size_t size = *data_size_ptr_;
+    pthread_mutex_unlock(mutex_ptr_);
+    return size;
+  }
 
   std::string getShmName() {
     if (name_.empty()) {
@@ -133,7 +144,7 @@ class ShmBase {
   // MySemaphore sem_;
   std::string name_;
   size_t offset_;
-  size_t data_size_;
+  size_t data_max_size_;
   size_t total_size_;
   // ShmHead shm_head_;
   SharedMemory shm_;  // 初始化顺序与声明顺序要保存一致
@@ -141,6 +152,7 @@ class ShmBase {
   pthread_cond_t* cond_ptr_ = nullptr;
   uint64_t* time_ptr_ = nullptr;
   int32_t* ref_count_ptr_ = nullptr;  // 引用计数指针
+  size_t* data_size_ptr_ = nullptr;
   char* data_ptr_;
   bool is_creator_ = false;  // 是否是创建者（用于判断是否初始化 ref_count_）
 };

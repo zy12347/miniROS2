@@ -115,8 +115,11 @@ class Subscriber : public SubscriberBase {
 
   std::function<void()> createTaskFromSubEvent() {
     std::lock_guard<std::mutex> lock(mutex_);
+    LOGD("createTaskFromSubEvent: " << topic_ << " " << event_);
     getMessage();
+    LOGD("getMessage: " << msg_.serialize());
     std::shared_ptr<MsgT> msg_ptr = std::make_shared<MsgT>(msg_);
+    LOGD("msg_ptr: " << msg_ptr->serialize());
     return [this, msg_ptr]() { this->execute(msg_ptr); };
   }
 
@@ -138,7 +141,7 @@ class Subscriber : public SubscriberBase {
       Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);
       delete[] data;
     } catch (const std::exception& e) {
-      std::cerr << "Subscription listen error: " << e.what() << "\n";
+      LOGE("Subscription listen error: " << e.what());
     }
   }
   std::mutex mutex_;

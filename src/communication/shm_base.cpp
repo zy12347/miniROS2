@@ -67,6 +67,7 @@ void ShmBase::initMutexAndCond() {
   head->initialized_ = 0x4D525332;  // "MRS2"
   head->time_ = 0;
   head->ref_count_ = 1;  // 创建者初始化为1
+  head->data_size_ = data_max_size_;
 
   CachePointers(head);
 }
@@ -75,6 +76,7 @@ void ShmBase::CachePointers(ShmHead* head) {
   mutex_ptr_ = &head->mutex_;
   cond_ptr_ = &head->cond_;
   time_ptr_ = &head->time_;
+  data_size_ptr_ = &head->data_size_;
   ref_count_ptr_ = &head->ref_count_;
 
   // 数据区紧跟在ShmHead之后
@@ -120,6 +122,7 @@ void ShmBase::Write(const void* data, size_t size, size_t offset) {
     *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
                      std::chrono::system_clock::now().time_since_epoch())
                      .count();
+    *data_size_ptr_ = size;
   } catch (...) {
     // 出错时解锁，避免死锁
     pthread_mutex_unlock(mutex_ptr_);
@@ -148,6 +151,7 @@ void ShmBase::WriteUnlocked(const void* data, size_t size, size_t offset) {
     *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
                      std::chrono::system_clock::now().time_since_epoch())
                      .count();
+    *data_size_ptr_ = size;
   } catch (...) {
     // 出错时解锁，避免错误
     throw;

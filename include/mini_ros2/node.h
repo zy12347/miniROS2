@@ -17,6 +17,8 @@
 #include "mini_ros2/logger.h"
 #include "mini_ros2/pubsub/publisher.h"
 #include "mini_ros2/pubsub/subscriber.h"
+#include "mini_ros2/service/service.h"
+#include "mini_ros2/service/client.h"
 #include "mini_ros2/thread_pool.h"
 #include "mini_ros2/timer.h"
 
@@ -104,6 +106,36 @@ class Node {
     min_timer_period_ = std::min(min_timer_period_, period);
   }
 
+  template <typename MsgT>
+  std::shared_ptr<Service<MsgT>> createService(const std::string& topic, const std::string& event, std::function<void(MsgT& data)> callback) {
+    std::lock_guard<std::mutex> lock(node_mutex_);
+    std::string full_topic = shm_prefix_ + topic;
+    auto service = std::make_shared<Service<MsgT>>(full_topic, event, callback);
+    LOGD("createService: " << topic << " " << event);
+    services_.push_back(service);
+    service_topics_.push_back(topic);
+    SHM_MANAGER->addSyncTopic(full_topic, event);
+    int event_id = SHM_MANAGER->registerTopicEvent(full_topic, event);
+    LOGD("event_id: " << event_id);
+    if (event_id >= 0) {
+      service_event_ids_.push_back(event_id);
+    } else {
+      service_event_ids_.push_back(-1);  // 标记失败
+    }
+    return service;
+  }
+
+  template <typename MsgT>
+  std::shared_ptr<ClientRequest<MsgT>> createClient(const std::string& topic, const std::string& event, std::function<void(const MsgT& data)> callback) {
+    std::lock_guard<std::mutex> lock(node_mutex_);
+    std::string full_topic = shm_prefix_ + topic;
+    // LOGD("full_topic: " << full_topic);
+    auto client = std::make_shared<ClientRequest<MsgT>>(full_topic, event);
+    LOGD("createClient: " << full_topic << " " << event);
+    client->setTopicNameForEvent(full_topic);
+    clients_.push_back(client);
+    return client;
+  }
   void printRegistry();
 
  private:
@@ -114,10 +146,14 @@ class Node {
   static void signalHandler(int signum);
   std::vector<std::shared_ptr<PublisherBase>> publishers_;
   std::vector<std::shared_ptr<SubscriberBase>> subscriptions_;
+  std::vector<std::shared_ptr<ServiceBase>> services_;
+  std::vector<std::shared_ptr<ClientRequestBase>> clients_;
 
   std::vector<std::string> pub_topics_;      // 发布的话题列表
   std::vector<std::string> sub_topics_;      // 订阅的话题列表
+  std::vector<std::string> service_topics_;  // 服务的话题列表
   std::vector<int> subscription_event_ids_;  // 订阅者索引到 event_id 的映射
+  std::vector<int> service_event_ids_;  // 服务者索引到 event_id 的映射
 
   std::thread heartbeat_thread_;
   std::atomic<bool> heartbeat_running_ = false;  // 心跳机制，定时更新节点状态

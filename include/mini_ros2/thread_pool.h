@@ -33,8 +33,7 @@ class ThreadPool {
           }
         });
       } catch (const std::exception& e) {
-        std::cerr << "ThreadPool constructor exception: " << e.what()
-                  << std::endl;
+        LOGE("ThreadPool constructor exception: " << e.what());
       }
     }
   }

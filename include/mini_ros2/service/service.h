@@ -55,13 +55,9 @@ class Service : public ServiceBase {
                            .count();
     uint64_t task_duration = task_end_time_stamp - task_init_time_stamp;
     // LOGD("service " << getServiceName() << " execute duration: " << task_duration << " us");
-    if(task_duration > 1000000) {
-      LOGD("service " << getServiceName() << " execute duration: " << task_duration << " us");
-    }else{
-        shm_->Write(msg_ptr->serialize().c_str(), msg_ptr->serialize().size());
-        SHM_MANAGER->triggerEventResponse(topic_, event_);
-        LOGD("service " << getServiceName() << " execute response success");
-    }
+    shm_->Write(msg_ptr->serialize().c_str(), msg_ptr->serialize().size());
+    SHM_MANAGER->triggerEventResponse(topic_, event_);
+    LOGD("service " << getServiceName() << " execute response success");
   }
 
   std::function<void()> createTaskFromService() {

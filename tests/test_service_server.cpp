@@ -24,6 +24,7 @@ int main() {
     if (msg.isMember("b")&&msg["b"].isInt()) {
       b = msg["b"].asInt();
     }
+    sleep(1);
     msg = JsonValue();
     msg["result"] = a + b;
     msg["timestamp"] = std::to_string(static_cast<uint64_t>(time(nullptr)));

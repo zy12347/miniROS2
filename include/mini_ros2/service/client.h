@@ -27,28 +27,32 @@ class ClientRequest : public ClientRequestBase {
  public:
     ClientRequest(const std::string& topic, const std::string& event) : topic_(topic), event_(event) {};
 
-    ~ClientRequest();
+    ~ClientRequest() = default;
     void setTopic(const std::string& topic);
 
     void setEvent(const std::string& event);
 
     void setTopicNameForEvent(const std::string& topic_name) { topic_name_for_event_ = topic_name; }
 
-    int syncService(const std::string& topic, const std::string& event, const MsgT& data, const MsgT& response,
+    const MsgT& getResponse() const {
+        return response_;
+    }
+
+    int syncService(const std::string& event, const MsgT& data, const MsgT& response,
                            int timeout = 100, int depth = 10) {
         size_t msg_serialize_size;
         msg_serialize_size = Serializer::getSerializedSize<MsgT>(data);
         uint8_t* buffer    = new uint8_t[msg_serialize_size];
         Serializer::serialize<MsgT>(data, buffer, msg_serialize_size);
-        std::string topic_str = topic + "_" + event;
+        std::string topic_str = topic_ + "_" + event;
         if (shm_service_ == nullptr) {
             shm_service_ = std::make_shared<ShmBase>(topic_str, msg_serialize_size);
             shm_service_->Create();
             shm_service_->Open();
         }
-        if (!SHM_MANAGER->isTopicExist(topic, event)) {
-            LOGD("addSyncTopic: " << topic << " " << event);
-            SHM_MANAGER->addSyncTopic(topic, event);
+        if (!SHM_MANAGER->isTopicExist(topic_, event)) {
+            LOGD("addSyncTopic: " << topic_ << " " << event);
+            SHM_MANAGER->addSyncTopic(topic_, event);
         }
         if (!topic_name_for_event_.empty()) {
             LOGD("triggerEvent: " << topic_name_for_event_ << " " << event << " message: " << data.serialize());
@@ -56,15 +60,20 @@ class ClientRequest : public ClientRequestBase {
         }
         shm_service_->Write(buffer, msg_serialize_size);
         delete[] buffer;
-        std::bitset<EVENT_MAX_COUNT> trigger_event = SHM_MANAGER->waitForEventResponse(timeout);
-        if (trigger_event.any()) {
-            int event_id = SHM_MANAGER->getTopicEventId(topic, event);
-            if(trigger_event[event_id]) {
-                getMessage();
-                LOGD("service " << topic << " " << event << " response: " << response_.serialize());
+        while(true){
+            std::bitset<EVENT_MAX_COUNT> trigger_event = SHM_MANAGER->waitForEventResponse(timeout);
+            if (trigger_event.any()) {
+                LOGD("waitForEventResponse success");
+                int event_id = SHM_MANAGER->getTopicEventId(topic_, event);
+                if(trigger_event[event_id]) {
+                    getMessage();
+                    LOGD("service " << topic_ << " " << event << " response: " << response_.serialize());
+                }
+                return 0;
             }
+            break;
         }
-        return 0;
+        return -1;
     }
 
     int32_t asyncService(const std::string& topic, const std::string& event, const MsgT& data,
@@ -87,7 +96,7 @@ class ClientRequest : public ClientRequestBase {
             Serializer::deserialize<MsgT>(data, msg_serialize_size, response_);
             delete[] data;
         } catch (const std::exception& e) {
-            std::cerr << "Subscription listen error: " << e.what() << "\n";
+            LOGE("service listen error: " << e.what());
         }
     }
 

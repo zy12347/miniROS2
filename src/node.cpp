@@ -69,7 +69,7 @@ void Node::registerNode() {
 
   // 检查节点数量限制
   if (SHM_MANAGER->getAliveNodeCount() >= MAX_NODE_COUNT) {
-    std::cerr << "Maximum node count reached" << std::endl;
+    LOGE("Maximum node count reached");
     return;
   }
 
@@ -77,7 +77,7 @@ void Node::registerNode() {
   node_id_ = SHM_MANAGER->getNextNodeId();
   SHM_MANAGER->setNodeId(node_id_);
   if (node_id_ == -1) {
-    std::cerr << "No free slot for new node" << std::endl;
+    LOGE("No free slot for new node");
     return;
   }
   // 找到空闲位置
@@ -208,7 +208,7 @@ void Node::spinLoop() {
                               processed_event_ids.push_back(event_id);
                           }
                       } catch (const std::exception& e) {
-                          std::cerr << "Task exception: " << e.what() << std::endl;
+                          LOGE("Task exception: " << e.what());
                       }
                   }
               }
@@ -223,17 +223,21 @@ void Node::spinLoop() {
                   if (is_triggered) {
                       LOGD("    Processing event for subscription[" << id << "] with event_id=" << event_id);
                       try {
+                          // LOGD("    createTaskFromSubEvent: " << subscriptions_[id]->getTopicName() << " " << subscriptions_[id]->getEventName());
+                          LOGD("    thread_pool: " << (thread_pool_ ? "true" : "false") << " spinning: " << (spinning_ ? "true" : "false"));
                           if (thread_pool_ && spinning_) {
+                            LOGD("    enqueue task for service[" << id << "]");
                               // 使用捕获的 shared_ptr，不需要访问 Node 的成员
                               std::function<void()> task_func =
-                                      subscriptions_[id]->createTaskFromSubEvent();   // 拷贝数据并创建任务
+                              services_[id]->createTaskFromService();   // 拷贝数据并创建任务
+                              // LOGD("    task_func: " << task_func);
                               thread_pool_->enqueue(std::move(task_func));
                               LOGD("    Enqueued task for subscription[" << id << "]");
                               // 记录已处理的事件ID
                               processed_event_ids.push_back(event_id);
                           }
                       } catch (const std::exception& e) {
-                          std::cerr << "Task exception: " << e.what() << std::endl;
+                          LOGE("Task exception: " << e.what());
                       }
                   }
               }
@@ -266,7 +270,7 @@ void Node::spinLoop() {
             // std::cout << "enqueue" << std::endl;
           }
         } catch (const std::exception& e) {
-          std::cerr << "Task exception: " << e.what() << std::endl;
+          LOGE("Task exception: " << e.what());
         }
       }
     }

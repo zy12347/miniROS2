@@ -658,7 +658,7 @@ void ShmManager::addSubTopic(const std::string& topic_name,
     // 查找或创建 topic event
     int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
   if (event_id < 0) {
-    std::cerr << "Failed to create topic event" << std::endl;
+    LOGE("Failed to create topic event");
   }
     // 更新时间戳
     *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -702,7 +702,7 @@ void ShmManager::addPubTopic(const std::string& topic_name,
     // 查找或创建 topic event
     int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
   if (event_id < 0) {
-    std::cerr << "Failed to create topic event" << std::endl;
+    LOGE("Failed to create topic event");
     } else {
       // 添加到 topics 列表
       if (topics_info_ptr_->topics_count < MAX_TOPICS_PER_NODE) {
@@ -752,7 +752,7 @@ void ShmManager::addSyncTopic(const std::string& topic_name, const std::string& 
         // 查找或创建 topic event
         int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
         if (event_id < 0) {
-            std::cerr << "Failed to create topic event" << std::endl;
+            LOGE("Failed to create topic event");
         } else {
             // 添加到 topics 列表
             if (topics_info_ptr_->topics_count < MAX_TOPICS_PER_NODE) {
@@ -926,7 +926,7 @@ int ShmManager::findOrCreateTopicEventUnlocked_(const std::string& topic_name,
 
   // 不存在，创建新的映射
   if (topics_info_ptr_->topics_count >= MAX_TOPICS_PER_NODE) {
-    std::cerr << "Maximum topic count reached" << std::endl;
+    LOGE("Maximum topic count reached");
     return -1;
   }
 

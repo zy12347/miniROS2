@@ -107,14 +107,15 @@ class Node {
   }
 
   template <typename MsgT>
-  std::shared_ptr<ServiceBase> createService(const std::string& topic, const std::string& event, std::function<void(const MsgT& data)> callback) {
+  std::shared_ptr<Service<MsgT>> createService(const std::string& topic, const std::string& event, std::function<void(MsgT& data)> callback) {
     std::lock_guard<std::mutex> lock(node_mutex_);
-    auto service = std::make_shared<Service<MsgT>>(topic, event, callback);
+    std::string full_topic = shm_prefix_ + topic;
+    auto service = std::make_shared<Service<MsgT>>(full_topic, event, callback);
     LOGD("createService: " << topic << " " << event);
     services_.push_back(service);
     service_topics_.push_back(topic);
-    SHM_MANAGER->addSyncTopic(topic, event);
-    int event_id = SHM_MANAGER->registerTopicEvent(topic, event);
+    SHM_MANAGER->addSyncTopic(full_topic, event);
+    int event_id = SHM_MANAGER->registerTopicEvent(full_topic, event);
     LOGD("event_id: " << event_id);
     if (event_id >= 0) {
       service_event_ids_.push_back(event_id);
@@ -125,10 +126,13 @@ class Node {
   }
 
   template <typename MsgT>
-  std::shared_ptr<ClientRequestBase> createClient(const std::string& topic, const std::string& event, std::function<void(const MsgT& data)> callback) {
+  std::shared_ptr<ClientRequest<MsgT>> createClient(const std::string& topic, const std::string& event, std::function<void(const MsgT& data)> callback) {
     std::lock_guard<std::mutex> lock(node_mutex_);
-    auto client = std::make_shared<ClientRequest<MsgT>>(topic, event);
-    LOGD("createClient: " << topic << " " << event);
+    std::string full_topic = shm_prefix_ + topic;
+    // LOGD("full_topic: " << full_topic);
+    auto client = std::make_shared<ClientRequest<MsgT>>(full_topic, event);
+    LOGD("createClient: " << full_topic << " " << event);
+    client->setTopicNameForEvent(full_topic);
     clients_.push_back(client);
     return client;
   }

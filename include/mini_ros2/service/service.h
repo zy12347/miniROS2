@@ -9,6 +9,7 @@
 #include <string>
 
 #include "mini_ros2/communication/shm_base.h"
+#include "mini_ros2/communication/shm_manager.h"
 #include "mini_ros2/logger.h"
 #include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
@@ -30,14 +31,12 @@ class Service : public ServiceBase {
   friend class Node;
 
  public:
-  Service(const std::string& topic, const std::string& event,std::function<void(const MsgT& data)> callback) : topic_(topic), event_(event) {
+  Service(const std::string& topic, const std::string& event,std::function<void(MsgT& data)> callback) : topic_(topic), event_(event) {
     setCallback(callback);
   };
-  ~Service() {
-  };
+  ~Service() = default;
 
-
-  void setCallback(std::function<void(const MsgT& data)> callback) {
+  void setCallback(std::function<void(MsgT& data)> callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = callback;
   }
@@ -50,17 +49,17 @@ class Service : public ServiceBase {
     uint64_t task_init_time_stamp = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();
-    callback_(*msg_ptr);
+    callback_(*msg_ptr);  // callback 可以修改 msg_ptr 来设置响应
     uint64_t task_end_time_stamp = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();
     uint64_t task_duration = task_end_time_stamp - task_init_time_stamp;
     // LOGD("service " << getServiceName() << " execute duration: " << task_duration << " us");
     if(task_duration > 1000000) {
-      LOGW("service " << getServiceName() << " execute duration: " << task_duration << " us");
+      LOGD("service " << getServiceName() << " execute duration: " << task_duration << " us");
     }else{
         shm_->Write(msg_ptr->serialize().c_str(), msg_ptr->serialize().size());
-        SHM_MANAGER->triggerEventResponse(getServiceName());
+        SHM_MANAGER->triggerEventResponse(topic_, event_);
         LOGD("service " << getServiceName() << " execute response success");
     }
   }
@@ -90,14 +89,14 @@ class Service : public ServiceBase {
       Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);
       delete[] data;
     } catch (const std::exception& e) {
-      std::cerr << "Subscription listen error: " << e.what() << "\n";
+      LOGE("Subscription listen error: " << e.what());
     }
   }
   std::mutex mutex_;
   std::string topic_;
   std::string event_;
   std::shared_ptr<ShmBase> shm_;
-  std::function<void(const MsgT& data)> callback_;
+  std::function<void(MsgT& data)> callback_;  // 非 const 引用，允许修改响应
   int depth_;
   int host_id_;
   long long time_stamp_ = 0;

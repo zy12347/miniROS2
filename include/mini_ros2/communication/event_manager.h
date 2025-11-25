@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "mini_ros2/logger.h"
 typedef enum {
   EVENT_TYPE_SUB, // 订阅者事件（接收消息）
   EVENT_TYPE_PUB  // 发布者事件（如发送确认，可选）
@@ -30,7 +31,7 @@ public:
   EventManager() {
     epoll_fd_ = epoll_create1(0);
     if (epoll_fd_ == -1) {
-      std::cerr << "epoll_create1 failed" << std::endl;
+      LOGE("epoll_create1 failed");
       return;
     }
     thread_ = std::thread(&EventManager::run, this);
@@ -105,7 +106,7 @@ private:
         if (errno == EINTR) {
           continue;
         }
-        std::cerr << "epoll_wait failed" << std::endl;
+        LOGE("epoll_wait failed");
         break;
       }
       // 处理所有就绪事件

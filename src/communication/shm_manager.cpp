@@ -1059,6 +1059,7 @@ void ShmManager::triggerEventResponse(const std::string& topic_name,
                                       const std::string& event_name) {
   int event_id = getTopicEventId_(topic_name, event_name);
   if (event_id >= 0) {
+    LOGD("trigger event_id "<<event_id);
     event_notification_shm_->triggerEventResponse(event_id);
   }
 }

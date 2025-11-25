@@ -127,6 +127,28 @@ void EventNotificationShm::initMutexAndCond() {
   }
   pthread_condattr_destroy(&cond_attr);
 
+  pthread_condattr_t cond_attr;
+  ret = pthread_condattr_init(&cond_attr);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to init cond attr: " +
+                             std::string(strerror(ret)));
+  }
+
+  ret = pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
+  if (ret != 0) {
+    pthread_condattr_destroy(&cond_attr);
+    throw std::runtime_error("Failed to set cond shared: " +
+                             std::string(strerror(ret)));
+  }
+
+  ret = pthread_cond_init(&head->cond_res_, &cond_attr);
+  if (ret != 0) {
+    pthread_condattr_destroy(&cond_attr);
+    throw std::runtime_error("Failed to init cond: " +
+                             std::string(strerror(ret)));
+  }
+  pthread_condattr_destroy(&cond_attr);
+
   // 设置初始化标志
   head->initialized_ = 0x4556454E;  // "EVEN"
   head->event_flag_.reset();
@@ -273,6 +295,7 @@ void EventNotificationShm::triggerEventResponse(int event_id) {
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();
     // 通知所有等待的线程
+    LOGD("triggerEventResponse broadcast");
     pthread_cond_broadcast(cond_res_ptr_);
   } catch (...) {
     pthread_mutex_unlock(mutex_ptr_);

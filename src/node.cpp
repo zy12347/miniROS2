@@ -232,7 +232,7 @@ void Node::spinLoop() {
                               services_[id]->createTaskFromService();   // 拷贝数据并创建任务
                               // LOGD("    task_func: " << task_func);
                               thread_pool_->enqueue(std::move(task_func));
-                              LOGD("    Enqueued task for subscription[" << id << "]");
+                              LOGD("    Enqueued task for service[" << id << "]");
                               // 记录已处理的事件ID
                               processed_event_ids.push_back(event_id);
                           }

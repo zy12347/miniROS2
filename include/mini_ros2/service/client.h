@@ -25,7 +25,7 @@ class ClientRequest : public ClientRequestBase {
     friend class Node;
 
  public:
-    ClientRequest(const std::string& topic, const std::string& event) : topic_(topic), event_(event) {};
+    ClientRequest(const std::string& topic, const std::string& event, QosPolicy qos_policy = QosPolicy()) : topic_(topic), event_(event), qos_policy_(qos_policy) {};
 
     ~ClientRequest() = default;
     void setTopic(const std::string& topic);
@@ -89,7 +89,7 @@ class ClientRequest : public ClientRequestBase {
                 LOGD("create shm_name: " << shm_name << " event: " << event_ << " for service");
                 // link("/proc/self/fd/" + std::to_string(efd), eventfd_path_.c_str());
             }
-            size_t msg_serialize_size = shm_service_->getDataSize();
+            size_t msg_serialize_size = shm_service_->getCurMsgSize();
             LOGD("msg_serialize_size: " << msg_serialize_size);
             uint8_t* data = new uint8_t[msg_serialize_size];
             shm_service_->ReadUnlocked(data, msg_serialize_size);
@@ -103,6 +103,7 @@ class ClientRequest : public ClientRequestBase {
  private:
     std::string topic_;
     std::string event_;
+    QosPolicy qos_policy_;
     std::string topic_name_for_event_;
     std::shared_ptr<ShmBase> shm_service_;
     MsgT response_;

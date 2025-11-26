@@ -8,15 +8,17 @@
 #include "mini_ros2/node.h"
 #include "mini_ros2/pubsub/publisher.h"
 #include "time.h"
+#include "mini_ros2/qos_policy.h"
 
 int main() {
   std::cout << "SHM_MANAGER_SIZE: " << SHM_MANAGER_SIZE << std::endl;
   pthread_setname_np(pthread_self(), "main1");
   Node node("test_node2");
-  auto pub = node.createPublisher<JsonValue>("test");
-  auto pub1 = node.createPublisher<JsonValue>("test");
+  QosPolicy qos_policy(QosPolicy::KEEP_ALL, 2);
+  auto pub = node.createPublisher<JsonValue>("test", qos_policy);
+  auto pub1 = node.createPublisher<JsonValue>("test", qos_policy);
   // node.printRegistry();
-  node.createTimer(5000, [&pub, &pub1]() {
+  node.createTimer(2000, [&pub, &pub1]() {
     JsonValue json;
     json["name"] = "John";
     json["age"] = 30;
@@ -35,8 +37,10 @@ int main() {
     json1["weight"] = 40;
     json1["time"] = std::to_string(static_cast<uint64_t>(time(nullptr)));
     // std::cout << "pub test" << std::endl;
-    pub->publish("test", json);
+    // pub->publish("test", json);
     pub1->publish("test1", json1);
+    // ShmBase::PrintShmData("/0_test_test");
+    ShmBase::PrintShmData("/0_test_test1");
   });
   node.printRegistry();
   node.spin();

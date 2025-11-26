@@ -59,6 +59,17 @@ bool SharedMemory::Open() {
     LOGD("shm_open failed");
     return false;  // 打开失败
   }
+  
+  // 重新获取共享内存的实际大小（通过 fstat）
+  struct stat shm_stat;
+  if (fstat(fd_, &shm_stat) == -1) {
+    Close();
+    LOGD("fstat failed");
+    return false;  // 获取大小失败
+  }
+  size_ = shm_stat.st_size;  // 更新为实际大小
+  LOGD("共享内存实际大小: " << size_ << " 字节 (通过 fstat 获取)");
+  
   data_ = mmap(nullptr, size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
   if (data_ == MAP_FAILED) {
     Close();

@@ -12,6 +12,7 @@
 #include "mini_ros2/logger.h"
 #include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
+#include "mini_ros2/qos_policy.h"
 
 class SubscriberBase {
  public:
@@ -34,7 +35,7 @@ class Subscriber : public SubscriberBase {
   // Subscriber &operator=(const Subscriber &) = delete;
   // Subscriber(Subscriber &&) = delete;
   // Subscriber &operator=(Subscriber &&) = delete;
-  Subscriber(const std::string& topic) : topic_(topic) {};
+  Subscriber(const std::string& topic, QosPolicy qos_policy = QosPolicy()) : topic_(topic), qos_policy_(qos_policy) {};
   ~Subscriber() {
     // if (event_fd_ != -1) {
     //   close(event_fd_);
@@ -61,52 +62,6 @@ class Subscriber : public SubscriberBase {
   void setHostId(int host_id) { host_id_ = host_id; };
 
   std::string getTopicName() const { return topic_; }
-
-  // std::string getEventFdPath() {
-  //   if (eventfd_path_.empty()) {
-  //     throw std::runtime_error("Subscriber: do not have eventfd");
-  //   }
-  //   return eventfd_path_;
-  // }
-
-  // void initEventFd() {
-  //   std::string shm_name = "/tmp" + shm_->getShmName() + "_eventfd";
-  //   eventfd_path_ = shm_name; // + "_" + std::to_string(getpid());
-  //   event_fd_ = eventfd(0, EFD_NONBLOCK);
-  //   if (event_fd_ == -1) {
-  //     throw std::runtime_error("Sublisher: failed to create ack eventfd " +
-  //                              std::string(strerror(errno)));
-  //   }
-  //   std::string efd_path = "/proc/self/fd/" + std::to_string(event_fd_);
-  //   struct stat st;
-  //   if (stat(efd_path.c_str(), &st) == -1) {
-  //     close(event_fd_);
-  //     throw std::runtime_error("Subscriber: src path invalid: " + efd_path +
-  //                              " " + std::string(strerror(errno)));
-  //   }
-  //   std::cout << "efd_path " << efd_path << " eventfd_path_ " <<
-  //   eventfd_path_
-  //             << std::endl;
-  //   if (link(efd_path.c_str(), eventfd_path_.c_str()) == -1) {
-  //     close(event_fd_);
-  //     throw std::runtime_error("Subscriber: failed to link ack eventfd " +
-  //                              std::string(strerror(errno)));
-  //   }
-  //   event_src_.efd_name = eventfd_path_;
-  //   event_src_.efd = event_fd_;
-  //   event_src_.type = EVENT_TYPE_SUB;
-  //   event_src_.data = this; // 传递当前 Subscriber 实例作为业务数据
-  //   // 回调函数：读取共享内存消息并触发用户回调
-  //   event_src_.callback = [this]() {
-  //     // 触发用户注册的回调
-  //     this->execute();
-  //   };
-  // }
-
-  // void getEventSrc(EventSource &ev) {
-  //   ev = event_src_;
-  //   return;
-  // }
   void execute(std::shared_ptr<MsgT> msg_ptr) {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_(*msg_ptr);
@@ -129,15 +84,17 @@ class Subscriber : public SubscriberBase {
       if (shm_ == nullptr) {
         // 订阅时创建共享内存
         std::string shm_name = topic_ + "_" + event_;
-        shm_ = std::make_shared<ShmBase>(shm_name);
+        shm_ = std::make_shared<ShmBase>(shm_name,qos_policy_);
         shm_->Open();
         LOGD("create shm_name: " << shm_name << " event: " << event_ << " for subscriber");
         // link("/proc/self/fd/" + std::to_string(efd), eventfd_path_.c_str());
       }
-      size_t msg_serialize_size = shm_->getDataSize();
+      // 使用 Read() 方法（带锁），而不是 ReadUnlocked()
+      // 因为 Read() 会正确处理锁和读指针更新
+      size_t msg_serialize_size = shm_->getCurMsgSize();
       LOGD("msg_serialize_size: " << msg_serialize_size);
       uint8_t* data = new uint8_t[msg_serialize_size];
-      shm_->ReadUnlocked(data, msg_serialize_size);
+      shm_->Read(data, msg_serialize_size);  // 使用 Read() 而不是 ReadUnlocked()
       Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);
       delete[] data;
     } catch (const std::exception& e) {
@@ -149,7 +106,7 @@ class Subscriber : public SubscriberBase {
   std::string event_;
   std::shared_ptr<ShmBase> shm_;
   std::function<void(const MsgT& data)> callback_;
-  int depth_;
+  QosPolicy qos_policy_;
   int host_id_;
   long long time_stamp_ = 0;
   MsgT msg_;

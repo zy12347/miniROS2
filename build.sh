@@ -5,6 +5,7 @@
 # make -j 4
 
 #!/bin/bash
+# 构建脚本：使用 Release 模式编译（-O2 优化）
 
 # 默认构建类型为 Release
 BUILD_TYPE="Release"
@@ -28,7 +29,13 @@ mkdir -p build
 cd build
 
 # 运行 CMake 并设置适当的构建类型
-cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0" ..
+# Release 模式：使用 -O2 优化
+# Debug 模式：使用 -g -O0（无优化，便于调试）
+if [ "$BUILD_TYPE" = "Release" ]; then
+    cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_CXX_FLAGS_RELEASE="-O2" -DCMAKE_C_FLAGS_RELEASE="-O2" ..
+else
+    cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0" ..
+fi
 
 # 构建项目
 make -j $(nproc)

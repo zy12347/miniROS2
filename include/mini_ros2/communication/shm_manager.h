@@ -69,16 +69,22 @@ struct ShmManagerData {
 
 class ShmManager {
  public:
-  // 单例模式：获取唯一实例指针
+  // 单例模式：获取唯一实例指针（双重检查锁定优化）
   static ShmManager* Instance() {
-    creat_mutex_.lock();
-    if (instance_ == nullptr) {
-      instance_ = new ShmManager();
-      // 注册退出时清理函数
-      std::atexit(Cleanup);
+    // 第一次检查：避免每次调用都加锁（读操作，无锁）
+    ShmManager* tmp = instance_;
+    if (tmp == nullptr) {
+      // 第二次检查：在锁内再次检查，确保只创建一次
+      std::lock_guard<std::mutex> lock(creat_mutex_);
+      tmp = instance_;
+      if (tmp == nullptr) {
+        instance_ = new ShmManager();
+        // 注册退出时清理函数
+        std::atexit(Cleanup);
+        tmp = instance_;
+      }
     }
-    creat_mutex_.unlock();
-    return instance_;
+    return tmp;
   }
 
   // 清理单例实例（在程序退出时调用）

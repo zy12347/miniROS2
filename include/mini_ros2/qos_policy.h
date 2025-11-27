@@ -1,5 +1,29 @@
+/**
+ * @file qos_policy.h
+ * @brief QoS 策略定义
+ * @author miniROS2 Team
+ * @date 2024
+ */
+
 #pragma once
 
+/**
+ * @struct QosPolicy
+ * @brief 服务质量策略，控制消息的可靠性和历史深度
+ * 
+ * QoS 策略定义了消息的缓存策略：
+ * - KEEP_LAST: 保留最后 N 条消息（环形缓冲区，覆盖旧数据）
+ * - KEEP_ALL: 保留所有消息直到被读取（队列，不丢失消息）
+ * 
+ * @example
+ * @code
+ * // 创建 KEEP_LAST 策略，保留最后 10 条消息
+ * QosPolicy qos(QosPolicy::KEEP_LAST, 10);
+ * 
+ * // 创建 KEEP_ALL 策略，最多保留 5 条消息
+ * QosPolicy qos_all(QosPolicy::KEEP_ALL, 5);
+ * @endcode
+ */
 struct QosPolicy {
   // 历史策略：消息缓存策略
   // KEEP_LAST: 保留最后 N 条消息（由 history_depth 指定，使用环形缓冲区覆盖旧数据）
@@ -8,7 +32,8 @@ struct QosPolicy {
   
   QosPolicy() : history(KEEP_LAST), history_depth(1) {}
 
-  QosPolicy(QosPolicy &qos_policy) : history(qos_policy.history), history_depth(qos_policy.history_depth) {}
+  // 拷贝构造函数：接受 const 引用，可以绑定到右值
+  QosPolicy(const QosPolicy &qos_policy) : history(qos_policy.history), history_depth(qos_policy.history_depth) {}
 
   QosPolicy(History history, int history_depth) : history(history), history_depth(history_depth) {}
   

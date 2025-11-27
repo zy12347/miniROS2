@@ -1,3 +1,10 @@
+/**
+ * @file client.h
+ * @brief 客户端类定义
+ * @author miniROS2 Team
+ * @date 2024
+ */
+
 #pragma once
 #include <sys/eventfd.h>
 
@@ -9,7 +16,13 @@
 #include "mini_ros2/communication/shm_manager.h"
 #include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
+#include "mini_ros2/message/buffer_pool.h"
 
+/**
+ * @class ClientRequestBase
+ * @brief 客户端基类
+ * 提供客户端的通用接口，用于类型擦除
+ */
 class ClientRequestBase {
  public:
     virtual ~ClientRequestBase() = default;   // 虚析构函数
@@ -18,14 +31,35 @@ class ClientRequestBase {
 
 class Node;
 class ShmManager;
-//    #define POST_EVENT(...) Publisher::Publish(__VA_ARGS__)
 
+/**
+ * @class ClientRequest
+ * @brief 客户端请求类，用于调用服务
+ * @tparam MsgT 消息类型，必须支持 serialize() 和 deserialize() 方法
+ * 
+ * ClientRequest 向服务发送请求并等待响应。
+ * 支持同步和异步两种调用方式。
+ * 
+ * @note 通常通过 Node::createClient() 创建，不建议直接实例化
+ * 
+ * @example examples/basic/service_example.cpp
+ * @code
+ * auto client = node.createClient<JsonValue>("add_two_ints", "request");
+ * JsonValue request;
+ * request["a"] = 10;
+ * request["b"] = 20;
+ * JsonValue response;
+ * client->syncService("request", request, response, 5000);  // 5秒超时
+ * @endcode
+ */
 template <typename MsgT>
 class ClientRequest : public ClientRequestBase {
     friend class Node;
 
  public:
-    ClientRequest(const std::string& topic, const std::string& event, QosPolicy qos_policy = QosPolicy()) : topic_(topic), event_(event), qos_policy_(qos_policy) {};
+    ClientRequest(const std::string& topic, const std::string& event, QosPolicy qos_policy = QosPolicy()) 
+        : topic_(topic), event_(event), qos_policy_(qos_policy), 
+          buffer_pool_(std::unique_ptr<mini_ros2::BufferPool>(new mini_ros2::BufferPool())) {};
 
     ~ClientRequest() = default;
     void setTopic(const std::string& topic);
@@ -42,7 +76,8 @@ class ClientRequest : public ClientRequestBase {
                            int timeout = 100, int depth = 10) {
         size_t msg_serialize_size;
         msg_serialize_size = Serializer::getSerializedSize<MsgT>(data);
-        uint8_t* buffer    = new uint8_t[msg_serialize_size];
+        // 使用缓冲区池复用内存，避免每次分配
+        uint8_t* buffer = buffer_pool_->acquire(msg_serialize_size);
         Serializer::serialize<MsgT>(data, buffer, msg_serialize_size);
         std::string topic_str = topic_ + "_" + event;
         if (shm_service_ == nullptr) {
@@ -59,7 +94,7 @@ class ClientRequest : public ClientRequestBase {
             SHM_MANAGER->triggerEvent(topic_name_for_event_, event);
         }
         shm_service_->Write(buffer, msg_serialize_size);
-        delete[] buffer;
+        // 不需要 delete[]，缓冲区由 buffer_pool_ 管理
         while(true){
             std::bitset<EVENT_MAX_COUNT> trigger_event = SHM_MANAGER->waitForEventResponse(timeout);
             if (trigger_event.any()) {
@@ -91,10 +126,10 @@ class ClientRequest : public ClientRequestBase {
             }
             size_t msg_serialize_size = shm_service_->getCurMsgSize();
             LOGD("msg_serialize_size: " << msg_serialize_size);
-            uint8_t* data = new uint8_t[msg_serialize_size];
+            uint8_t* data = buffer_pool_->acquire(msg_serialize_size);
             shm_service_->ReadUnlocked(data, msg_serialize_size);
             Serializer::deserialize<MsgT>(data, msg_serialize_size, response_);
-            delete[] data;
+            // delete[] data;
         } catch (const std::exception& e) {
             LOGE("service listen error: " << e.what());
         }
@@ -107,5 +142,6 @@ class ClientRequest : public ClientRequestBase {
     std::string topic_name_for_event_;
     std::shared_ptr<ShmBase> shm_service_;
     MsgT response_;
+    std::unique_ptr<mini_ros2::BufferPool> buffer_pool_;  // 缓冲区池，用于复用内存
     // std::shared_ptr<ShmBase> shm_res_;
 };

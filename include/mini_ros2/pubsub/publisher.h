@@ -1,3 +1,10 @@
+/**
+ * @file publisher.h
+ * @brief 发布者类定义
+ * @author miniROS2 Team
+ * @date 2024
+ */
+
 #pragma once
 #include <sys/eventfd.h>
 
@@ -9,8 +16,14 @@
 #include "mini_ros2/communication/shm_manager.h"
 #include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
+#include "mini_ros2/message/buffer_pool.h"
 #include "mini_ros2/qos_policy.h"
 
+/**
+ * @class PublisherBase
+ * @brief 发布者基类
+ * 提供发布者的通用接口，用于类型擦除
+ */
 class PublisherBase {
  public:
     virtual ~PublisherBase() = default;   // 虚析构函数
@@ -21,19 +34,59 @@ class Node;
 class ShmManager;
 #define POST_EVENT(...) Publisher::Publish(__VA_ARGS__)
 
+/**
+ * @class Publisher
+ * @brief 发布者类，用于向话题发布消息
+ * @tparam MsgT 消息类型，必须支持 serialize() 方法
+ * 
+ * Publisher 使用共享内存将消息发送给订阅者。
+ * 支持 QoS 策略，可以控制消息的可靠性和历史深度。
+ * 
+ * @note 通常通过 Node::createPublisher() 创建，不建议直接实例化
+ * 
+ * @example examples/basic/talker.cpp
+ * @code
+ * auto pub = node.createPublisher<JsonValue>("chatter");
+ * JsonValue msg;
+ * msg["data"] = "Hello, miniROS2!";
+ * pub->publish("message", msg);
+ * @endcode
+ */
 template <typename MsgT>
 class Publisher : public PublisherBase {
     friend class Node;
 
  public:
-    Publisher(std::string& topic, QosPolicy qos_policy = QosPolicy()) : topic_(topic), qos_policy_(qos_policy) {};
+    Publisher(const std::string& topic, QosPolicy qos_policy = QosPolicy()) 
+        : topic_(topic), qos_policy_(qos_policy), buffer_pool_(std::unique_ptr<mini_ros2::BufferPool>(new mini_ros2::BufferPool())) {};
 
+    /**
+     * @brief 析构函数
+     */
     ~Publisher() = default;
+    
+    /**
+     * @brief 发布消息到指定事件
+     * @param event 事件名称，用于区分同一话题下的不同事件类型
+     * @param data 要发布的消息数据
+     * @return 0 表示成功，非0 表示失败
+     * 
+     * @note 消息会被序列化并写入共享内存，然后触发事件通知订阅者
+     * 
+     * @example
+     * @code
+     * JsonValue msg;
+     * msg["data"] = "Hello";
+     * pub->publish("message", msg);
+     * @endcode
+     */
     int publish(const std::string& event, const MsgT& data) {
         size_t msg_serialize_size;
         msg_serialize_size = Serializer::getSerializedSize<MsgT>(data);
         // std::cout << "msg_serialize_size: " << msg_serialize_size << std::endl;
-        uint8_t* buffer = new uint8_t[msg_serialize_size];
+        
+        // 使用缓冲区池复用内存，避免每次分配
+        uint8_t* buffer = buffer_pool_->acquire(msg_serialize_size);
         Serializer::serialize<MsgT>(data, buffer, msg_serialize_size);
         std::string topic_str = topic_ + "_" + event;
         if (shm_ == nullptr) {
@@ -74,7 +127,7 @@ class Publisher : public PublisherBase {
             SHM_MANAGER->triggerEvent(topic_name_for_event_, event);
         }
 
-        delete[] buffer;
+        // 不需要 delete[]，缓冲区由 buffer_pool_ 管理
         return 0;
     }
 
@@ -83,14 +136,15 @@ class Publisher : public PublisherBase {
     static int publish(const std::string& topic, const std::string& event, const MsgT& data, int depth = 10) {
         size_t msg_serialize_size;
         msg_serialize_size = Serializer::getSerializedSize<MsgT>(data);
-        uint8_t* buffer    = new uint8_t[msg_serialize_size];
-        Serializer::serialize<MsgT>(data, buffer, msg_serialize_size);
+        // 静态方法使用临时缓冲区（无法使用对象级缓冲区池）
+        std::unique_ptr<uint8_t[]> buffer(new uint8_t[msg_serialize_size]);
+        Serializer::serialize<MsgT>(data, buffer.get(), msg_serialize_size);
         std::string topic_str        = topic + "_" + event;
         std::shared_ptr<ShmBase> shm = std::make_shared<ShmBase>(topic_str, msg_serialize_size);
         shm->Create();
         shm->Open();
-        shm->Write(buffer, msg_serialize_size);
-        delete[] buffer;
+        shm->Write(buffer.get(), msg_serialize_size);
+        // buffer 自动释放（RAII）
         return 0;
     }
     static int32_t postEvent(const std::string& topic, const std::string& event, const MsgT& data, int depth = 10);
@@ -111,4 +165,6 @@ class Publisher : public PublisherBase {
     std::string topic_name_for_event_;   // 用于事件触发的 topic 名称（去除前缀）
 
     long long time_stamp_ = 0;
+    
+    std::unique_ptr<mini_ros2::BufferPool> buffer_pool_;  // 缓冲区池，用于复用内存
 };

@@ -1,3 +1,10 @@
+/**
+ * @file subscriber.h
+ * @brief 订阅者类定义
+ * @author miniROS2 Team
+ * @date 2024
+ */
+
 #pragma once
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -12,8 +19,14 @@
 #include "mini_ros2/logger.h"
 #include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
+#include "mini_ros2/message/buffer_pool.h"
 #include "mini_ros2/qos_policy.h"
 
+/**
+ * @class SubscriberBase
+ * @brief 订阅者基类
+ * 提供订阅者的通用接口，用于类型擦除
+ */
 class SubscriberBase {
  public:
   virtual ~SubscriberBase() = default;
@@ -24,8 +37,25 @@ class SubscriberBase {
 };
 
 class Node;
-// 需要先声明消息类别才能创建订阅者,消息类需包含serialize和deserialize方法
-//  例如:class JsonValue { public: std::string serialize() const; static Json
+
+/**
+ * @class Subscriber
+ * @brief 订阅者类，用于从话题接收消息
+ * @tparam MsgT 消息类型，必须支持 deserialize() 方法
+ * 
+ * Subscriber 从共享内存读取消息并调用回调函数。
+ * 支持 QoS 策略，可以控制消息的可靠性和历史深度。
+ * 
+ * @note 通常通过 Node::createSubscriber() 创建，不建议直接实例化
+ * 
+ * @example examples/basic/listener.cpp
+ * @code
+ * auto sub = node.createSubscriber<JsonValue>("chatter", "message",
+ *     [](const JsonValue& msg) {
+ *         std::cout << "Received: " << msg.serialize() << std::endl;
+ *     });
+ * @endcode
+ */
 template <typename MsgT>
 class Subscriber : public SubscriberBase {
   friend class Node;
@@ -35,7 +65,8 @@ class Subscriber : public SubscriberBase {
   // Subscriber &operator=(const Subscriber &) = delete;
   // Subscriber(Subscriber &&) = delete;
   // Subscriber &operator=(Subscriber &&) = delete;
-  Subscriber(const std::string& topic, QosPolicy qos_policy = QosPolicy()) : topic_(topic), qos_policy_(qos_policy) {};
+  Subscriber(const std::string& topic, QosPolicy qos_policy = QosPolicy()) 
+      : topic_(topic), qos_policy_(qos_policy), buffer_pool_(std::unique_ptr<mini_ros2::BufferPool>(new mini_ros2::BufferPool())) {};
   ~Subscriber() {
     // if (event_fd_ != -1) {
     //   close(event_fd_);
@@ -93,10 +124,10 @@ class Subscriber : public SubscriberBase {
       // 因为 Read() 会正确处理锁和读指针更新
       size_t msg_serialize_size = shm_->getCurMsgSize();
       LOGD("msg_serialize_size: " << msg_serialize_size);
-      uint8_t* data = new uint8_t[msg_serialize_size];
+      uint8_t* data = buffer_pool_->acquire(msg_serialize_size);
       shm_->Read(data, msg_serialize_size);  // 使用 Read() 而不是 ReadUnlocked()
       Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);
-      delete[] data;
+      // delete[] data;
     } catch (const std::exception& e) {
       LOGE("Subscription listen error: " << e.what());
     }
@@ -110,6 +141,7 @@ class Subscriber : public SubscriberBase {
   int host_id_;
   long long time_stamp_ = 0;
   MsgT msg_;
+  std::unique_ptr<mini_ros2::BufferPool> buffer_pool_;  // 缓冲区池，用于复用内存
   // int event_fd_ = -1;
   // std::string eventfd_path_;
   // EventSource event_src_;

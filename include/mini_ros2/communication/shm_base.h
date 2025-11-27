@@ -1,3 +1,12 @@
+/**
+ * @file shm_base.h
+ * @brief 共享内存基类定义
+ * @author miniROS2 Team
+ * @date 2024
+ * 
+ * ShmBase 提供了基于共享内存的进程间通信功能，支持 QoS 策略。
+ */
+
 #pragma once
 #include <pthread.h>
 
@@ -10,6 +19,12 @@
 #include "shared_memory.h"
 #include "mini_ros2/qos_policy.h"
 
+/**
+ * @struct ShmHead
+ * @brief 共享内存头部结构
+ * 
+ * 存储在共享内存的开头，包含元数据和同步原语。
+ */
 struct ShmHead {
   uint32_t initialized_;  // 初始化标志：0x4D525332 = "MRS2" (MiniROS2)
   pthread_mutex_t mutex_;
@@ -24,9 +39,33 @@ struct ShmHead {
   uint64_t time_;
 };
 
+/**
+ * @class ShmBase
+ * @brief 共享内存基类，提供进程间通信的基础设施
+ * 
+ * ShmBase 封装了共享内存的创建、打开、读写操作，支持：
+ * - QoS 策略（KEEP_LAST / KEEP_ALL）
+ * - 线程安全的读写操作
+ * - 固定大小的消息槽管理
+ * - 循环缓冲区支持
+ * 
+ * @note 通常不直接使用，而是通过 Publisher/Subscriber 使用
+ * 
+ * @example examples/shared_memory_demo/shm_publisher.cpp
+ */
 class ShmBase {
  public:
+  /**
+   * @brief 默认构造函数
+   */
   ShmBase() = default;
+  
+  /**
+   * @brief 构造函数（创建新共享内存）
+   * @param name 共享内存名称
+   * @param size 单个消息的最大大小（字节）
+   * @param qos_policy QoS 策略，控制消息的可靠性和历史深度
+   */
   ShmBase(const std::string& name, size_t size, QosPolicy qos_policy = QosPolicy())
       : name_(name),
         offset_(sizeof(ShmHead)),
@@ -41,6 +80,13 @@ class ShmBase {
                << " data_max_size: " << data_max_size_ 
                << " history_depth: " << qos_policy_.history_depth);
   }
+  /**
+   * @brief 构造函数（打开已存在的共享内存）
+   * @param name 共享内存名称
+   * @param qos_policy QoS 策略
+   * 
+   * @note 此构造函数用于打开已存在的共享内存，大小和参数从共享内存头部读取
+   */
   ShmBase(const std::string& name,QosPolicy qos_policy = QosPolicy()) : name_(name), shm_(name) ,qos_policy_(qos_policy){
     total_size_ = shm_.Size();
     offset_ = sizeof(ShmHead);
@@ -51,8 +97,26 @@ class ShmBase {
   }
   ~ShmBase();
 
+  /**
+   * @brief 创建共享内存
+   * @throw std::runtime_error 如果创建失败
+   */
   void Create();
-  bool Exists() const;  // 检查共享内存是否存在
+  
+  /**
+   * @brief 检查共享内存是否存在
+   * @return true 如果存在，false 否则
+   */
+  bool Exists() const;
+  
+  /**
+   * @brief 打开共享内存
+   * 
+   * 如果共享内存已存在，则打开它；如果是新创建的，则初始化互斥锁和条件变量。
+   * 从共享内存头部读取 max_msg_size_ 和 slot_size_。
+   * 
+   * @throw std::runtime_error 如果打开失败
+   */
   void Open() {
     if (!shm_.Open()) {
       throw std::runtime_error("Failed to open shared memory");
@@ -105,13 +169,49 @@ class ShmBase {
     std::memset(data_ptr, 0, size);
   };
   
+  /**
+   * @brief 写入数据到共享内存（线程安全）
+   * @param data 要写入的数据指针
+   * @param size 数据大小（字节）
+   * @param offset 数据区内的偏移量（默认0）
+   * @throw std::runtime_error 如果写入失败
+   * @throw std::out_of_range 如果数据大小超过限制
+   * 
+   * @note 根据 QoS 策略自动处理循环缓冲区和队列满的情况
+   */
   void Write(const void* data, size_t size, size_t offset = 0);
 
-  // 内部写入方法：假设调用者已经持有锁（用于避免双重锁）
+  /**
+   * @brief 写入数据到共享内存（无锁版本）
+   * @param data 要写入的数据指针
+   * @param size 数据大小（字节）
+   * @param offset 数据区内的偏移量（默认0）
+   * 
+   * @warning 调用者必须确保已持有互斥锁
+   * @throw std::runtime_error 如果写入失败
+   */
   void WriteUnlocked(const void* data, size_t size, size_t offset = 0);
 
+  /**
+   * @brief 从共享内存读取数据（线程安全）
+   * @param buffer 接收数据的缓冲区
+   * @param size 缓冲区大小（字节）
+   * @param offset 数据区内的偏移量（默认0）
+   * @throw std::runtime_error 如果读取失败或没有数据可读
+   * 
+   * @note 对于 KEEP_ALL 模式，读取后会自动更新读指针
+   */
   void Read(void* buffer, size_t size, size_t offset = 0);
 
+  /**
+   * @brief 从共享内存读取数据（无锁版本）
+   * @param buffer 接收数据的缓冲区
+   * @param size 缓冲区大小（字节）
+   * @param offset 数据区内的偏移量（默认0）
+   * 
+   * @warning 调用者必须确保已持有互斥锁
+   * @throw std::runtime_error 如果读取失败或没有数据可读
+   */
   void ReadUnlocked(void* buffer, size_t size, size_t offset = 0);
 
   void Close();

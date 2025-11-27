@@ -1,3 +1,10 @@
+/**
+ * @file service.h
+ * @brief 服务类定义
+ * @author miniROS2 Team
+ * @date 2024
+ */
+
 #pragma once
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -13,8 +20,14 @@
 #include "mini_ros2/logger.h"
 #include "mini_ros2/message/message_serializer.h"
 #include "mini_ros2/message/qos_buffer.h"
+#include "mini_ros2/message/buffer_pool.h"
 #include "mini_ros2/qos_policy.h"
 
+/**
+ * @class ServiceBase
+ * @brief 服务基类
+ * 提供服务的通用接口，用于类型擦除
+ */
 class ServiceBase {
  public:
     virtual ~ServiceBase() = default;
@@ -25,8 +38,27 @@ class ServiceBase {
 };
 
 class Node;
-// 需要先声明消息类别才能创建订阅者,消息类需包含serialize和deserialize方法
-//  例如:class JsonValue { public: std::string serialize() const; static Json
+
+/**
+ * @class Service
+ * @brief 服务类，用于处理客户端请求
+ * @tparam MsgT 消息类型，必须支持 serialize() 和 deserialize() 方法
+ * 
+ * Service 接收客户端请求，处理请求并返回响应。
+ * 支持请求-响应式通信模式。
+ * 
+ * @note 通常通过 Node::createService() 创建，不建议直接实例化
+ * 
+ * @example examples/basic/service_example.cpp
+ * @code
+ * auto service = node.createService<JsonValue>("add_two_ints", "request",
+ *     [](JsonValue& request) {
+ *         int a = request["a"].asInt();
+ *         int b = request["b"].asInt();
+ *         request["sum"] = a + b;  // 修改 request 作为响应
+ *     });
+ * @endcode
+ */
 template <typename MsgT>
 class Service : public ServiceBase {
     friend class Node;
@@ -34,7 +66,9 @@ class Service : public ServiceBase {
  public:
     Service(const std::string& topic, const std::string& event, std::function<void(MsgT& data)> callback, QosPolicy qos_policy = QosPolicy())
         : topic_(topic),
-          event_(event) {
+          event_(event),
+          qos_policy_(qos_policy),
+          buffer_pool_(std::unique_ptr<mini_ros2::BufferPool>(new mini_ros2::BufferPool())) {
         setCallback(callback);
     };
     ~Service() = default;
@@ -83,10 +117,10 @@ class Service : public ServiceBase {
             }
             size_t msg_serialize_size = shm_->getCurMsgSize();
             LOGD("msg_serialize_size: " << msg_serialize_size);
-            uint8_t* data = new uint8_t[msg_serialize_size];
+            uint8_t* data = buffer_pool_->acquire(msg_serialize_size);
             shm_->ReadUnlocked(data, msg_serialize_size);
             Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);
-            delete[] data;
+            // delete[] data;
         } catch (const std::exception& e) {
             LOGE("Subscription listen error: " << e.what());
         }
@@ -100,6 +134,7 @@ class Service : public ServiceBase {
     int host_id_;
     long long time_stamp_ = 0;
     MsgT msg_;
+    std::unique_ptr<mini_ros2::BufferPool> buffer_pool_;  // 缓冲区池，用于复用内存
     // int event_fd_ = -1;
     // std::string eventfd_path_;
     // EventSource event_src_;

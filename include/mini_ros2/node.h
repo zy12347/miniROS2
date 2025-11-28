@@ -81,6 +81,8 @@ class Node {
      * @param domain_id 域ID，用于多域隔离（默认0）
      */
     Node(const std::string& node_name, const std::string& name_space = "", int domain_id = 0);
+
+    void setNodeId(int node_id) { node_id_ = node_id; };
     
     /**
      * @brief 析构函数
@@ -201,8 +203,8 @@ class Node {
         sub_topics_.push_back(topic_name);
         SHM_MANAGER->addSubTopic(full_topic, event_name);
 
-        // 注册 topic+event 组合，获取 event_id（使用原始 topic 名称，不含前缀）
-        int event_id = SHM_MANAGER->registerTopicEvent(full_topic, event_name);
+        // 注册 topic+event 组合，获取 event_id（订阅者订阅的是 pub 事件）
+        int event_id = SHM_MANAGER->registerTopicEvent(full_topic, event_name, true);
         LOGD("event_id: " << event_id);
         // 存储订阅者索引到 event_id 的映射（用于在 spinLoop 中映射）
         if (event_id >= 0) {
@@ -248,7 +250,7 @@ class Node {
         services_.push_back(service);
         service_topics_.push_back(topic);
         SHM_MANAGER->addSyncTopic(full_topic, event);
-        int event_id = SHM_MANAGER->registerTopicEvent(full_topic, event);
+        int event_id = SHM_MANAGER->registerTopicEvent(full_topic, event, false);
         LOGD("event_id: " << event_id);
         if (event_id >= 0) {
             service_event_ids_.push_back(event_id);

@@ -153,9 +153,12 @@ class ShmManager {
   void notifyAllWaiters() { event_notification_shm_->notifyAll(); }
 
   // 事件触发相关方法
-  // 注册 topic+event 组合，返回分配的 event_id（位索引）
+  // 注册 topic+event 组合，返回分配的 event_id
+  // @param is_pub true 表示 pub 事件（ID 范围 [0, EVENT_MAX_PUB_COUNT-1]），
+  //               false 表示 service 事件（ID 范围 [EVENT_MAX_PUB_COUNT, EVENT_MAX_COUNT-1]）
   int registerTopicEvent(const std::string& topic_name,
-                         const std::string& event_name);
+                         const std::string& event_name,
+                         bool is_pub = true);
 
   // 查找 topic+event 对应的 event_id，如果不存在返回 -1
   int getTopicEventId(const std::string& topic_name,
@@ -172,6 +175,7 @@ class ShmManager {
   void clearTriggerEvent(int event_id);
   void clearAllTriggerEvents();
 
+  void decreaseEventCount(int event_id);
   // 注意：readAndClearEventFlags 已废弃，使用 readAndClearEvents() 代替
   // 如果需要清除特定的事件位，可以在读取后手动清除
 
@@ -200,8 +204,12 @@ class ShmManager {
   int findOrCreateTopicEvent_(const std::string& topic_name,
                               const std::string& event_name);
 
+  // 查找或创建 topic+event 映射，返回 event_id
+  // @param is_pub true 表示 pub 事件（ID 范围 [0, EVENT_MAX_PUB_COUNT-1]），
+  //               false 表示 service 事件（ID 范围 [EVENT_MAX_PUB_COUNT, EVENT_MAX_COUNT-1]）
   int findOrCreateTopicEventUnlocked_(const std::string& topic_name,
-                                      const std::string& event_name);
+                                      const std::string& event_name,
+                                      bool is_pub = true);
 
   // void writeRegistryToShm_();  // 写入注册表到共享内存
   // void writeNodesInfo_();

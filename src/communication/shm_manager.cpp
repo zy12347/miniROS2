@@ -1,4 +1,5 @@
 #include "mini_ros2/communication/shm_manager.h"
+#include "mini_ros2/communication/event_notification_shm.h"
 #include "mini_ros2/logger.h"
 #include <sys/mman.h>
 #include <cstring>
@@ -655,8 +656,8 @@ void ShmManager::addSubTopic(const std::string& topic_name,
         nodes_info_ptr_->nodes[node_id_].sub_topic_count++;
       }
     }
-    // 查找或创建 topic event
-    int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+    // 查找或创建 topic event（订阅者订阅的是 pub 事件，ID 范围 [0, EVENT_MAX_PUB_COUNT-1]）
+    int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name, true);
   if (event_id < 0) {
     LOGE("Failed to create topic event");
   }
@@ -699,8 +700,8 @@ void ShmManager::addPubTopic(const std::string& topic_name,
         nodes_info_ptr_->nodes[node_id_].pub_topic_count++;
       }
     }
-    // 查找或创建 topic event
-    int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+    // 查找或创建 topic event（pub 事件，ID 范围 [0, EVENT_MAX_PUB_COUNT-1]）
+    int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name, true);
   if (event_id < 0) {
     LOGE("Failed to create topic event");
     } else {
@@ -749,8 +750,8 @@ void ShmManager::addSyncTopic(const std::string& topic_name, const std::string& 
                 nodes_info_ptr_->nodes[node_id_].sync_topic_count++;
             }
         }
-        // 查找或创建 topic event
-        int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+        // 查找或创建 topic event（service 事件，ID 范围 [EVENT_MAX_PUB_COUNT, EVENT_MAX_COUNT-1]）
+        int event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name, false);
         if (event_id < 0) {
             LOGE("Failed to create topic event");
         } else {
@@ -907,10 +908,12 @@ void ShmManager::printRegistry() {
   }
 }
 
-// 查找或创建 topic+event 映射，返回 event_id（位索引）
+// 查找或创建 topic+event 映射，返回 event_id
 // 注意：此方法假设调用者已经持有 mutex_ptr_ 锁
+// @param is_pub true 表示 pub 事件，false 表示 service 事件
 int ShmManager::findOrCreateTopicEventUnlocked_(const std::string& topic_name,
-                                        const std::string& event_name) {
+                                        const std::string& event_name,
+                                        bool is_pub) {
   if (topics_info_ptr_ == nullptr) {
     throw std::runtime_error("Shared memory not initialized");
   }
@@ -930,8 +933,51 @@ int ShmManager::findOrCreateTopicEventUnlocked_(const std::string& topic_name,
     return -1;
   }
 
-  // 分配新的 event_id（位索引）
-  int new_event_id = topics_info_ptr_->topics_count + 1;
+  // 根据类型分配 event_id
+  int new_event_id = -1;
+  if (is_pub) {
+    // Pub 事件：查找 [0, EVENT_MAX_PUB_COUNT-1] 范围内的空闲 ID
+    bool used_ids[EVENT_MAX_PUB_COUNT] = {false};
+    for (int i = 0; i < topics_info_ptr_->topics_count; i++) {
+      int id = topics_info_ptr_->topics[i].event_id_;
+      if (id >= 0 && id < EVENT_MAX_PUB_COUNT) {
+        used_ids[id] = true;
+      }
+    }
+    // 查找第一个空闲的 ID
+    for (int i = 0; i < EVENT_MAX_PUB_COUNT; i++) {
+      if (!used_ids[i]) {
+        new_event_id = i;
+        break;
+      }
+    }
+    if (new_event_id < 0) {
+      LOGE("No available pub event ID (max: " << EVENT_MAX_PUB_COUNT << ")");
+      return -1;
+    }
+  } else {
+    // Service 事件：查找 [EVENT_MAX_PUB_COUNT, EVENT_MAX_COUNT-1] 范围内的空闲 ID
+    bool used_ids[EVENT_MAX_SYNC_COUNT] = {false};
+    for (int i = 0; i < topics_info_ptr_->topics_count; i++) {
+      int id = topics_info_ptr_->topics[i].event_id_;
+      if (id >= EVENT_MAX_PUB_COUNT && id < EVENT_MAX_COUNT) {
+        used_ids[id - EVENT_MAX_PUB_COUNT] = true;
+      }
+    }
+    // 查找第一个空闲的 ID
+    for (int i = 0; i < EVENT_MAX_SYNC_COUNT; i++) {
+      if (!used_ids[i]) {
+        new_event_id = EVENT_MAX_PUB_COUNT + i;
+        break;
+      }
+    }
+    if (new_event_id < 0) {
+      LOGE("No available service event ID (max: " << EVENT_MAX_SYNC_COUNT << ")");
+      return -1;
+    }
+  }
+
+  // 保存新的映射
   topics_info_ptr_->topics[topics_info_ptr_->topics_count].event_id_ =
       new_event_id;
   std::strcpy(topics_info_ptr_->topics[topics_info_ptr_->topics_count].name_,
@@ -957,7 +1003,8 @@ int ShmManager::findOrCreateTopicEvent_(const std::string& topic_name,
 
   int event_id = -1;
   try {
-    event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+    // 默认作为 pub 事件处理（向后兼容）
+    event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name, true);
   } catch (...) {
     pthread_mutex_unlock(mutex_ptr_);
     throw;
@@ -973,9 +1020,10 @@ int ShmManager::findOrCreateTopicEvent_(const std::string& topic_name,
   return event_id;
 }
 
-// 注册 topic+event 组合，返回分配的 event_id（位索引）
+// 注册 topic+event 组合，返回分配的 event_id
 int ShmManager::registerTopicEvent(const std::string& topic_name,
-                                   const std::string& event_name) {
+                                   const std::string& event_name,
+                                   bool is_pub) {
   if (topics_info_ptr_ == nullptr || mutex_ptr_ == nullptr) {
     throw std::runtime_error("Shared memory not initialized");
   }
@@ -989,7 +1037,7 @@ int ShmManager::registerTopicEvent(const std::string& topic_name,
 
   int event_id = -1;
   try {
-    event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name);
+    event_id = findOrCreateTopicEventUnlocked_(topic_name, event_name, is_pub);
   if (event_id >= 0) {
       // 更新时间戳
       *time_ptr_ = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -1094,6 +1142,13 @@ void ShmManager::clearTriggerEvent(int event_id) {
     return;
   }
   event_notification_shm_->clearEvents(event_id);
+}
+
+void ShmManager::decreaseEventCount(int event_id) {
+  if (event_id < 0 || event_id >= MAX_TOPICS_PER_NODE) {
+    return;
+  }
+  event_notification_shm_->decreaseEventCount(event_id);
 }
 
 // 清除所有事件标志位

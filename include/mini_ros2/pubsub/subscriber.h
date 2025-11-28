@@ -101,11 +101,11 @@ class Subscriber : public SubscriberBase {
 
   std::function<void()> createTaskFromSubEvent() {
     std::lock_guard<std::mutex> lock(mutex_);
-    LOGD("createTaskFromSubEvent: " << topic_ << " " << event_);
+    // LOGD("createTaskFromSubEvent: " << topic_ << " " << event_);
     getMessage();
-    LOGD("getMessage: " << msg_.serialize());
+    // LOGD("getMessage: " << msg_.serialize());
     std::shared_ptr<MsgT> msg_ptr = std::make_shared<MsgT>(msg_);
-    LOGD("msg_ptr: " << msg_ptr->serialize());
+    // LOGD("msg_ptr: " << msg_ptr->serialize());
     return [this, msg_ptr]() { this->execute(msg_ptr); };
   }
 
@@ -123,7 +123,7 @@ class Subscriber : public SubscriberBase {
       // 使用 Read() 方法（带锁），而不是 ReadUnlocked()
       // 因为 Read() 会正确处理锁和读指针更新
       size_t msg_serialize_size = shm_->getCurMsgSize();
-      LOGD("msg_serialize_size: " << msg_serialize_size);
+      // LOGD("msg_serialize_size: " << msg_serialize_size);
       uint8_t* data = buffer_pool_->acquire(msg_serialize_size);
       shm_->Read(data, msg_serialize_size);  // 使用 Read() 而不是 ReadUnlocked()
       Serializer::deserialize<MsgT>(data, msg_serialize_size, msg_);

@@ -140,6 +140,9 @@ void EventNotificationShm::initMutexAndCond() {
   head->event_flag_.reset();
   // head->event_flag_req_.reset();
   head->event_flag_res_.reset();
+  for (int i = 0; i < EVENT_MAX_COUNT; ++i) {
+    head->event_count_list_[i] = 0;
+  }
   head->time_ = 0;
   head->ref_count_ = 1;  // 创建者初始化为1
 
@@ -162,6 +165,7 @@ void EventNotificationShm::cachePointers() {
   event_flag_ptr_ = &head->event_flag_;
   // event_flag_req_ptr_ = &head->event_flag_req_;
   event_flag_res_ptr_ = &head->event_flag_res_;
+  event_count_list_ptr_ = head->event_count_list_;
   ref_count_ptr_ = &head->ref_count_;
 }
 
@@ -185,6 +189,7 @@ void EventNotificationShm::triggerEvent(int event_id) {
   try {
     // 设置对应的位
     event_flag_ptr_->set(event_id);
+    event_count_list_ptr_[event_id]++;
     // 更新时间戳
     data_ptr_->time_ = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
@@ -276,6 +281,7 @@ void EventNotificationShm::triggerEventResponse(int event_id) {
   try {
     // 设置对应的位
     event_flag_res_ptr_->set(event_id);
+    event_count_list_ptr_[event_id]++;
     // 更新时间戳
     data_ptr_->time_ = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
@@ -367,6 +373,12 @@ std::bitset<EVENT_MAX_COUNT> EventNotificationShm::readAndClearEvents() {
     // 读取并清除事件标志位
     event_flag = *event_flag_ptr_;
     event_flag_ptr_->reset();
+    // 将事件计数列表全部重置为0
+    if (event_count_list_ptr_ != nullptr) {
+      for (int i = 0; i < EVENT_MAX_COUNT; ++i) {
+        event_count_list_ptr_[i] = 0;
+      }
+    }
   } catch (...) {
     pthread_mutex_unlock(mutex_ptr_);
     throw;
@@ -435,7 +447,7 @@ void EventNotificationShm::clearEvents(int event_id) {
     throw std::runtime_error("Failed to lock mutex: " +
                              std::string(strerror(ret)));
   }
-
+  event_count_list_ptr_[event_id] = 0;
   event_flag_ptr_->reset(event_id);
 
   // 释放锁
@@ -443,6 +455,18 @@ void EventNotificationShm::clearEvents(int event_id) {
   if (ret != 0) {
     throw std::runtime_error("Failed to unlock mutex: " +
                              std::string(strerror(ret)));
+  }
+}
+
+void EventNotificationShm::decreaseEventCount(int event_id) {
+  if (event_id < 0 || event_id >= EVENT_MAX_COUNT) {
+    return;
+  }
+  if (event_count_list_ptr_[event_id] > 0) {
+    event_count_list_ptr_[event_id]--;
+  }
+  if (event_count_list_ptr_[event_id] == 0) {
+    event_flag_ptr_->reset(event_id);
   }
 }
 void EventNotificationShm::clearEvents() {
@@ -457,7 +481,11 @@ void EventNotificationShm::clearEvents() {
     throw std::runtime_error("Failed to lock mutex: " +
                              std::string(strerror(ret)));
   }
-
+  if (event_count_list_ptr_ != nullptr) {
+    for (int i = 0; i < EVENT_MAX_COUNT; ++i) {
+      event_count_list_ptr_[i] = 0;
+    }
+  }
   event_flag_ptr_->reset();
 
   // 释放锁

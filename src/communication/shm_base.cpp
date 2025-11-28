@@ -294,7 +294,9 @@ void ShmBase::ReadUnlocked(void* buffer, size_t size, size_t offset) {
       
       // 循环队列判断：read_pos == write_pos 表示队列为空（没有数据可读）
       if (read_pos == write_pos) {
-        throw std::runtime_error("没有数据可读（read_pos_ == write_pos_，队列为空）");
+        pthread_mutex_unlock(mutex_ptr_);
+        LOGD("没有数据可读read_pos_ == write_pos_队列为空");
+        return;
       }
     }
     
@@ -384,11 +386,11 @@ void ShmBase::Read(void* buffer, size_t size, size_t offset) {
       size_t write_pos = *write_pos_ptr_;
       
       // 循环队列判断：read_pos == write_pos 表示队列为空（没有数据可读）
-      while (read_pos == write_pos) {
-        // 等待数据
-        pthread_cond_wait(cond_ptr_, mutex_ptr_);
-        read_pos = *read_pos_ptr_;
-        write_pos = *write_pos_ptr_;
+      if(read_pos == write_pos) {
+        pthread_mutex_unlock(mutex_ptr_);
+        LOGE("没有数据可读read_pos_ == write_pos_队列为空");
+        return;
+        // throw std::runtime_error("没有数据可读（read_pos_ == write_pos_，队列为空）");
       }
     }
     
@@ -681,5 +683,158 @@ void ShmBase::PrintShmData(const std::string& shm_name, bool hex_dump) {
     
   } catch (const std::exception& e) {
     LOGE("打印共享内存数据失败: " << e.what());
+  }
+}
+
+// 通过共享内存名称直接读取数据
+size_t ShmBase::ReadData(const std::string& shm_name, void* buffer, size_t buffer_size, 
+                         QosPolicy qos_policy) {
+  if (buffer == nullptr || buffer_size == 0) {
+    throw std::runtime_error("缓冲区指针为空或缓冲区大小为0");
+  }
+  
+  // 打开共享内存
+  SharedMemory shm(shm_name);
+  if (!shm.Exists()) {
+    throw std::runtime_error("共享内存不存在: " + shm_name);
+  }
+  
+  if (!shm.Open()) {
+    throw std::runtime_error("打开共享内存失败: " + shm_name);
+  }
+  
+  // 读取头部信息
+  ShmHead* head = static_cast<ShmHead*>(shm.Data());
+  if (!head) {
+    shm.Close();
+    throw std::runtime_error("获取共享内存头部指针失败");
+  }
+  
+  // 获取共享内存实际大小
+  size_t total_size = shm.Size();
+  size_t offset = sizeof(ShmHead);
+  size_t data_max_size = (total_size > offset) ? (total_size - offset) : 0;
+  
+  if (data_max_size == 0) {
+    shm.Close();
+    throw std::runtime_error("数据区大小为0");
+  }
+  
+  // 从头部读取 slot_size 和 max_msg_size
+  size_t slot_size = head->slot_size_;
+  size_t max_msg_size = head->max_msg_size_;
+  
+  if (slot_size == 0 || max_msg_size == 0) {
+    shm.Close();
+    throw std::runtime_error("共享内存头部信息无效: slot_size=" + 
+                            std::to_string(slot_size) + 
+                            ", max_msg_size=" + std::to_string(max_msg_size));
+  }
+  
+  // 计算数据区指针
+  char* data_ptr = reinterpret_cast<char*>(head) + offset;
+  
+  // 加锁保护
+  int ret = pthread_mutex_lock(&head->mutex_);
+  if (ret != 0) {
+    shm.Close();
+    throw std::runtime_error("获取互斥锁失败: " + std::string(strerror(ret)));
+  }
+  
+  try {
+    size_t read_pos = 0;
+    char* read_ptr = nullptr;
+    
+    // 根据 QoS 策略确定读取位置
+    if (qos_policy.history == QosPolicy::KEEP_LAST) {
+      // KEEP_LAST 模式：从 write_pos_ 向前一个槽读取最新的消息
+      size_t write_pos = head->write_pos_;
+      if (write_pos == 0) {
+        pthread_mutex_unlock(&head->mutex_);
+        shm.Close();
+        throw std::runtime_error("没有数据可读（write_pos_ == 0）");
+      }
+      
+      // 计算最新消息的位置（write_pos_ - slot_size，考虑回绕）
+      if (write_pos >= slot_size) {
+        read_pos = write_pos - slot_size;
+      } else {
+        // 回绕：从末尾向前
+        read_pos = data_max_size - slot_size + write_pos;
+      }
+    } else {
+      // KEEP_ALL 模式：从 read_pos_ 读取
+      read_pos = head->read_pos_;
+      size_t write_pos = head->write_pos_;
+      
+      // 循环队列判断：read_pos == write_pos 表示队列为空（没有数据可读）
+      if (read_pos == write_pos) {
+        pthread_mutex_unlock(&head->mutex_);
+        shm.Close();
+        throw std::runtime_error("没有数据可读（read_pos_ == write_pos_，队列为空）");
+      }
+    }
+    
+    read_ptr = data_ptr + read_pos;
+    
+    // 先读取 size
+    size_t* read_size_ptr = reinterpret_cast<size_t*>(read_ptr);
+    size_t msg_size = *read_size_ptr;
+    
+    if (msg_size == 0 || msg_size > max_msg_size) {
+      pthread_mutex_unlock(&head->mutex_);
+      shm.Close();
+      throw std::runtime_error("消息大小无效: " + std::to_string(msg_size));
+    }
+    
+    if (msg_size > buffer_size) {
+      pthread_mutex_unlock(&head->mutex_);
+      shm.Close();
+      throw std::runtime_error("消息大小超过缓冲区: " + std::to_string(msg_size) + 
+                              " > " + std::to_string(buffer_size));
+    }
+    
+    read_ptr += sizeof(size_t);
+    
+    // 再读取数据
+    std::memcpy(buffer, read_ptr, msg_size);
+    
+    // 更新读指针位置（仅 KEEP_ALL 模式需要，固定移动 slot_size）
+    if (qos_policy.history == QosPolicy::KEEP_ALL) {
+      read_pos += slot_size;
+      
+      // 处理循环队列：如果读指针到达数据区末尾，回绕到开始
+      if (read_pos >= data_max_size) {
+        read_pos = 0;  // 回绕到开始位置
+      }
+      
+      head->read_pos_ = read_pos;
+      
+      // 更新当前消息大小（仅 KEEP_ALL 模式，因为这是队列操作）
+      head->cur_msg_size_ = msg_size;
+      
+      // 通知等待的写者（有空间可以写入新消息）
+      pthread_cond_broadcast(&head->cond_);
+    }
+    // 注意：KEEP_LAST 模式是只读操作，不更新读指针、cur_msg_size_ 和 time_
+    // 因为多个读者可以同时读取最新的消息，不应该修改共享状态
+    
+    // 解锁
+    ret = pthread_mutex_unlock(&head->mutex_);
+    if (ret != 0) {
+      shm.Close();
+      throw std::runtime_error("释放互斥锁失败: " + std::string(strerror(ret)));
+    }
+    
+    // 关闭共享内存
+    shm.Close();
+    
+    // 返回实际读取的数据大小
+    return msg_size;
+    
+  } catch (...) {
+    pthread_mutex_unlock(&head->mutex_);
+    shm.Close();
+    throw;
   }
 }

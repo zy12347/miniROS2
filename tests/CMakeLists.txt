@@ -46,6 +46,20 @@ add_executable(test_command_adapter test_command_adapter.cpp)
 target_link_libraries(test_command_adapter 
   PRIVATE mini_ros2_lib 
 )
+
+# 性能压测程序
+add_executable(benchmark_pubsub benchmark_pubsub.cpp)
+target_link_libraries(benchmark_pubsub 
+  PRIVATE mini_ros2_lib 
+  pthread rt
+)
+
+add_executable(benchmark_service benchmark_service.cpp)
+target_link_libraries(benchmark_service 
+  PRIVATE mini_ros2_lib 
+  pthread rt
+)
+
 # add_executable(mini_ros2_test_exec ${TEST_FILES})
 # target_include_directories(mini_ros2_test_exec PRIVATE include/mini_ros2 tests)
 # target_link_libraries(mini_ros2_test_exec mini_ros2_lib pthread)

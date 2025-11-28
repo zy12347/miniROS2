@@ -39,6 +39,10 @@ struct ShmHead {
   uint64_t time_;
 };
 
+struct MessageHeader{
+  int32_t node_id;
+}
+
 /**
  * @class ShmBase
  * @brief 共享内存基类，提供进程间通信的基础设施
@@ -325,6 +329,25 @@ class ShmBase {
     memcpy(&data, data_ptr, head->cur_msg_size_);
     pthread_mutex_unlock(&head->mutex_);
   };
+
+  /**
+   * @brief 通过共享内存名称直接读取数据（静态方法）
+   * @param shm_name 共享内存名称
+   * @param buffer 接收数据的缓冲区指针
+   * @param buffer_size 缓冲区大小（字节）
+   * @param qos_policy QoS 策略（可选，默认使用 KEEP_LAST）
+   * @return 实际读取的数据大小（字节），如果失败则抛出异常
+   * @throw std::runtime_error 如果读取失败或没有数据可读
+   * 
+   * @note 此方法会打开共享内存，读取数据后自动关闭
+   * @note 支持 KEEP_LAST 和 KEEP_ALL 两种 QoS 策略
+   * 
+   * @example
+   *   char buffer[1024];
+   *   size_t read_size = ShmBase::ReadData("my_topic", buffer, sizeof(buffer));
+   */
+  static size_t ReadData(const std::string& shm_name, void* buffer, size_t buffer_size, 
+                         QosPolicy qos_policy = QosPolicy());
 
   // 打印指定名称的共享内存内的所有数据（静态方法）
   static void PrintShmData(const std::string& shm_name, bool hex_dump = false);

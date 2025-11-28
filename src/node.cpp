@@ -203,7 +203,7 @@ void Node::spinLoop() {
                               std::function<void()> task_func =
                                       subscriptions_[id]->createTaskFromSubEvent();   // 拷贝数据并创建任务
                               thread_pool_->enqueue(std::move(task_func));
-                              LOGD("    Enqueued task for subscription[" << id << "]");
+                              LOGD("Enqueued task for subscription[" << id << "]");
                               // 记录已处理的事件ID
                               processed_event_ids.push_back(event_id);
                           }
@@ -247,8 +247,8 @@ void Node::spinLoop() {
       // 只清除已处理的事件标志位，而不是全部清除
       // 这样可以避免清除其他进程/线程同时触发的事件
       for (int event_id : processed_event_ids) {
-        SHM_MANAGER->clearTriggerEvent(event_id);
-        LOGD("  Cleared event_id=" << event_id);
+        SHM_MANAGER->decreaseEventCount(event_id);
+        LOGD("Cleared event_id=" << event_id);
       }
     }
     // 解锁 ShmManager（允许其他线程更新注册表或触发事件）

@@ -11,7 +11,9 @@
 
 #define EVENT_NOTIFICATION_SHM_NAME "/miniros2_event_notification"
 #define EVENT_NOTIFICATION_SHM_SIZE sizeof(EventNotificationData)
-#define EVENT_MAX_COUNT 128              // 位数
+#define EVENT_MAX_PUB_COUNT 64
+#define EVENT_MAX_SYNC_COUNT 64
+#define EVENT_MAX_COUNT (EVENT_MAX_PUB_COUNT + EVENT_MAX_SYNC_COUNT)              // 位数
 // 事件通知共享内存数据结构
 struct EventNotificationData {
   uint32_t
@@ -24,6 +26,7 @@ struct EventNotificationData {
   std::bitset<EVENT_MAX_COUNT> event_flag_;
   // std::bitset<EVENT_MAX_COUNT> event_flag_req_;
   std::bitset<EVENT_MAX_COUNT> event_flag_res_;
+  int event_count_list_[EVENT_MAX_COUNT];
   uint64_t time_;  // 时间戳
   int32_t ref_count_;  // 引用计数（进程间共享）
   // char padding_[EVENT_NOTIFICATION_SHM_SIZE - sizeof(uint32_t) -
@@ -68,6 +71,24 @@ class EventNotificationShm {
 
   void clearEvents(int event_id);
 
+  void decreaseEventCount(int event_id);
+
+  // 事件ID类型判断和验证
+  // 判断 event_id 是否为 pub 事件（范围 [0, EVENT_MAX_PUB_COUNT-1]）
+  static bool isPubEvent(int event_id) {
+    return event_id >= 0 && event_id < EVENT_MAX_PUB_COUNT;
+  }
+
+  // 判断 event_id 是否为 service 事件（范围 [EVENT_MAX_PUB_COUNT, EVENT_MAX_COUNT-1]）
+  static bool isServiceEvent(int event_id) {
+    return event_id >= EVENT_MAX_PUB_COUNT && event_id < EVENT_MAX_COUNT;
+  }
+
+  // 验证 event_id 是否有效
+  static bool isValidEventId(int event_id) {
+    return event_id >= 0 && event_id < EVENT_MAX_COUNT;
+  }
+
   // 唤醒所有等待的线程（用于退出时唤醒）
   void notifyAll();
 
@@ -93,6 +114,9 @@ class EventNotificationShm {
   std::bitset<EVENT_MAX_COUNT>* event_flag_ptr_ = nullptr;
   // std::bitset<EVENT_MAX_COUNT>* event_flag_req_ptr_ = nullptr;
   std::bitset<EVENT_MAX_COUNT>* event_flag_res_ptr_ = nullptr;
+
+  int* event_count_list_ptr_ = nullptr;
+
   int32_t* ref_count_ptr_ = nullptr;  // 引用计数指针
   bool is_owner_ = false;
 
